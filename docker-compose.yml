@@ -56,3 +56,65 @@ services:
   package-artifacts:
     <<: *builder
     command: bash /scripts/package_android_artifacts.sh
+
+  ros2-demo-peer:
+    image: ${ROS2_DEMO_IMAGE:-osrf/ros:humble-desktop}
+    network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ANDROID_STATUS_TOPIC: ${ANDROID_STATUS_TOPIC:-/android/status}
+      ANDROID_COMMAND_TOPIC: ${ANDROID_COMMAND_TOPIC:-/android/command}
+      ROS2_PEER_COMMANDS: ${ROS2_PEER_COMMANDS:-ping}
+      ROS2_PEER_COMMAND_PERIOD: ${ROS2_PEER_COMMAND_PERIOD:-5.0}
+      ROS2_PEER_EXIT_AFTER: ${ROS2_PEER_EXIT_AFTER:-0}
+      ROS2_PEER_QOS: ${ROS2_PEER_QOS:-best_effort}
+    volumes:
+      - ./examples/pc-ros2-demo:/demo:ro
+    working_dir: /demo
+    command: bash /demo/run_peer.sh
+
+  ros2-demo-audio:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ros2-demo
+      args:
+        BASE_IMAGE: ${ROS2_DEMO_IMAGE:-osrf/ros:humble-desktop}
+    image: ros2-android-demo-audio:latest
+    network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS2_AUDIO_QOS: ${ROS2_AUDIO_QOS:-reliable}
+      PULSE_SERVER: ${PULSE_SERVER:-unix:/mnt/wslg/PulseServer}
+      PULSE_SOURCE: ${PULSE_SOURCE:-RDPSource}
+    volumes:
+      - ./examples/pc-ros2-demo:/demo:ro
+      - ${WSLG_DIR:-\\wsl.localhost\Ubuntu-24.04\mnt\wslg}:/mnt/wslg
+    working_dir: /demo
+    command: bash -lc "source /opt/ros/humble/setup.bash && python3 /demo/record_and_send_audio.py --backend parec --source $${PULSE_SOURCE} --duration $${AUDIO_DURATION:-3}"
+
+  ros2-demo-audio-shell:
+    image: ros2-android-demo-audio:latest
+    network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      PULSE_SERVER: ${PULSE_SERVER:-unix:/mnt/wslg/PulseServer}
+      PULSE_SOURCE: ${PULSE_SOURCE:-RDPSource}
+    volumes:
+      - ./examples/pc-ros2-demo:/demo:ro
+      - ${WSLG_DIR:-\\wsl.localhost\Ubuntu-24.04\mnt\wslg}:/mnt/wslg
+    working_dir: /demo
+    command: bash -lc "source /opt/ros/humble/setup.bash && exec bash"
+
+  ros2-demo-shell:
+    image: ${ROS2_DEMO_IMAGE:-osrf/ros:humble-desktop}
+    network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+    volumes:
+      - ./examples/pc-ros2-demo:/demo:ro
+    working_dir: /demo
+    command: bash -lc "source /opt/ros/humble/setup.bash && exec bash"

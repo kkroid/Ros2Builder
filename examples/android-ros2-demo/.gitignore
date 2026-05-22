@@ -1,0 +1,10 @@
+/.gradle/
+/build/
+/app/build/
+/app/.cxx/
+/local.properties
+
+# Copied from ../../work/dist by scripts/sync_ros2_artifacts.*
+/app/src/main/jniLibs/
+/app/src/main/ros2/
+/app/src/main/assets/ros2-manifest/
