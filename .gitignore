@@ -1,0 +1,12 @@
+/.env
+/.env.*
+!/.env.example
+
+# Local build, source checkout, package output and NDK cache.
+/work/
+/ndk/
+
+# Editor and OS noise.
+/.vscode/
+.DS_Store
+Thumbs.db
