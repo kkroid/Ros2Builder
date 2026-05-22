@@ -13,7 +13,7 @@ rclcpp rmw_fastrtps_cpp std_msgs
 - 已初步走通 Android 版本编译流程。
 - 运行时集成、APK 打包和真机通信测试仍待验证。
 - `tf2_ros`、`image_transport`、`rosbag2` 等扩展包建议逐个开启、逐个排错。
-- 本仓库尚未选择开源许可证；公开前请先添加 `LICENSE` 文件。
+- 本仓库使用 Apache License 2.0 开源，详见 [LICENSE](LICENSE)。
 
 ## 目录
 
@@ -247,4 +247,8 @@ rm -rf work/build work/install work/log work/dist
 
 这套配置是“源码和环境骨架”，不是保证 Humble 全量包一次过的按钮。`rclcpp + rmw_fastrtps_cpp + std_msgs` 是最适合先打通的链路；`tf2_ros`、`image_transport`、`rosbag2` 每加一层，都建议单独构建、单独验证。
 
-公开仓库前请参考 [docs/OPEN_SOURCE_CHECKLIST.md](docs/OPEN_SOURCE_CHECKLIST.md)，尤其是许可证、敏感路径扫描和干净环境复现。
+公开仓库前请参考 [docs/OPEN_SOURCE_CHECKLIST.md](docs/OPEN_SOURCE_CHECKLIST.md)，尤其是敏感路径扫描和干净环境复现。
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.

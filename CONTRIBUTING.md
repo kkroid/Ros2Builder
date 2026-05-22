@@ -36,4 +36,4 @@ If a change requires a local patch to upstream ROS 2 or DDS source, keep the pat
 
 ## License
 
-The project license has not been selected yet. Choose and add a `LICENSE` file before publishing the repository as open source.
+By contributing to this repository, you agree that your contributions are licensed under the Apache License 2.0. See `LICENSE` for details.

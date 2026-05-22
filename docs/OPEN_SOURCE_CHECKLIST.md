@@ -4,7 +4,7 @@ Use this checklist before making the repository public.
 
 ## Required before publish
 
-- Choose a license and add a top-level `LICENSE` file.
+- Confirm the top-level `LICENSE` file is present and matches the intended Apache License 2.0 release.
 - Confirm `.env`, `work/`, `ndk/` and packaged artifacts are not tracked.
 - Run a secret/path scan over tracked files.
 - Rebuild from a clean checkout using only documented commands.
