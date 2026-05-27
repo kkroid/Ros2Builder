@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(ROS2_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/../ros2/include")
+set(ROS2_STATIC_LIB_DIR "${CMAKE_CURRENT_LIST_DIR}/../ros2/lib/${ANDROID_ABI}")
 set(ROS2_JNILIB_DIR "${CMAKE_CURRENT_LIST_DIR}/../jniLibs/${ANDROID_ABI}")
 
 if(NOT EXISTS "${ROS2_INCLUDE_DIR}")
@@ -17,8 +18,16 @@ if(NOT EXISTS "${ROS2_JNILIB_DIR}")
 endif()
 
 file(GLOB ROS2_SHARED_LIBS CONFIGURE_DEPENDS "${ROS2_JNILIB_DIR}/*.so")
+file(GLOB ROS2_STATIC_LIBS CONFIGURE_DEPENDS "${ROS2_STATIC_LIB_DIR}/*.a")
+# Defense in depth: drop packages/libs the audio demo does not use, even if the
+# sync step copied them. Keep in sync with scripts/sync_ros2_artifacts.{ps1,sh}.
+list(FILTER ROS2_STATIC_LIBS EXCLUDE REGEX ".*/(librmw_fastrtps_cpp|libaction_msgs__.*|libunique_identifier_msgs__.*|libtest_msgs__.*|librcl_logging_spdlog)\\.a$")
 file(GLOB ROS2_PACKAGE_INCLUDE_DIRS CONFIGURE_DEPENDS LIST_DIRECTORIES true "${ROS2_INCLUDE_DIR}/*")
 set(ROS2_IMPORTED_TARGETS "")
+
+if(NOT ROS2_SHARED_LIBS AND NOT ROS2_STATIC_LIBS)
+  message(FATAL_ERROR "Missing ROS 2 libraries. Run scripts/sync_ros2_artifacts first.")
+endif()
 
 foreach(ROS2_SHARED_LIB IN LISTS ROS2_SHARED_LIBS)
   get_filename_component(ROS2_SHARED_NAME "${ROS2_SHARED_LIB}" NAME_WE)
@@ -37,6 +46,9 @@ target_include_directories(ros2_android_demo PRIVATE
 )
 
 target_link_libraries(ros2_android_demo PRIVATE
+  -Wl,--start-group
+  ${ROS2_STATIC_LIBS}
+  -Wl,--end-group
   ${ROS2_IMPORTED_TARGETS}
   log
   android

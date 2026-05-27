@@ -18,12 +18,14 @@
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rmw/error_handling.h>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int8_multi_array.hpp>
 
 namespace {
 
 constexpr const char *kLogTag = "Ros2AndroidDemo";
+constexpr const char *kRmwImplementation = "rmw_fastrtps_dynamic_cpp";
 
 bool is_valid_node_name(const std::string &value) {
   if (value.empty()) {
@@ -57,6 +59,16 @@ std::string json_escape(const std::string &value) {
   return escaped.str();
 }
 
+std::string with_rmw_error(const char *message) {
+  std::string result = message;
+  const rcutils_error_string_t rmw_error = rmw_get_error_string();
+  if (std::string(rmw_error.str) != "error not set") {
+    result += "; rmw: ";
+    result += rmw_error.str;
+  }
+  return result;
+}
+
 class RosDemoRuntime {
  public:
   bool start(
@@ -64,6 +76,7 @@ class RosDemoRuntime {
       std::string node_name,
       double publish_rate_hz,
       std::string qos_mode,
+      std::string discovery_server,
       std::string audio_file_path) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_) {
@@ -75,6 +88,7 @@ class RosDemoRuntime {
     node_name_ = std::move(node_name);
     publish_rate_hz_ = publish_rate_hz > 0.0 ? publish_rate_hz : 1.0;
     qos_mode_ = std::move(qos_mode);
+    discovery_server_ = std::move(discovery_server);
     audio_file_path_ = std::move(audio_file_path);
     published_count_ = 0;
     received_count_ = 0;
@@ -94,7 +108,12 @@ class RosDemoRuntime {
       }
 
       setenv("ROS_DOMAIN_ID", std::to_string(domain_id_).c_str(), 1);
-      setenv("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp", 1);
+      setenv("RMW_IMPLEMENTATION", kRmwImplementation, 1);
+      if (discovery_server_.empty()) {
+        unsetenv("ROS_DISCOVERY_SERVER");
+      } else {
+        setenv("ROS_DISCOVERY_SERVER", discovery_server_.c_str(), 1);
+      }
 
       context_ = std::make_shared<rclcpp::Context>();
       rclcpp::InitOptions init_options;
@@ -127,6 +146,10 @@ class RosDemoRuntime {
           [this](std_msgs::msg::UInt8MultiArray::SharedPtr message) {
             handle_audio_chunk(*message);
           });
+      tx_audio_control_publisher_ = node_->create_publisher<std_msgs::msg::String>(
+          "/wsl/audio_control", audio_qos);
+      tx_audio_chunk_publisher_ = node_->create_publisher<std_msgs::msg::UInt8MultiArray>(
+          "/wsl/audio_chunk", audio_qos);
 
       rebuild_timer_locked();
 
@@ -146,9 +169,9 @@ class RosDemoRuntime {
       });
       return true;
     } catch (const std::exception &error) {
-      last_error_ = error.what();
+      last_error_ = with_rmw_error(error.what());
       state_ = "failed";
-      __android_log_print(ANDROID_LOG_ERROR, kLogTag, "%s", error.what());
+      __android_log_print(ANDROID_LOG_ERROR, kLogTag, "%s", last_error_.c_str());
       cleanup_locked();
       return false;
     }
@@ -189,6 +212,46 @@ class RosDemoRuntime {
     return true;
   }
 
+  bool publish_tx_audio_control(const std::string &command) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!running_ || !tx_audio_control_publisher_) {
+      last_error_ = "Cannot publish: session not running";
+      return false;
+    }
+    std_msgs::msg::String message;
+    message.data = command;
+    try {
+      tx_audio_control_publisher_->publish(message);
+      return true;
+    } catch (const std::exception &error) {
+      last_error_ = with_rmw_error(error.what());
+      __android_log_print(ANDROID_LOG_ERROR, kLogTag, "publish tx control failed: %s",
+                          last_error_.c_str());
+      return false;
+    }
+  }
+
+  bool publish_tx_audio_chunk(const uint8_t *data, size_t length) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!running_ || !tx_audio_chunk_publisher_) {
+      last_error_ = "Cannot publish: session not running";
+      return false;
+    }
+    std_msgs::msg::UInt8MultiArray message;
+    if (data != nullptr && length > 0) {
+      message.data.assign(data, data + length);
+    }
+    try {
+      tx_audio_chunk_publisher_->publish(message);
+      return true;
+    } catch (const std::exception &error) {
+      last_error_ = with_rmw_error(error.what());
+      __android_log_print(ANDROID_LOG_ERROR, kLogTag, "publish tx chunk failed: %s",
+                          last_error_.c_str());
+      return false;
+    }
+  }
+
   std::string snapshot() {
     std::lock_guard<std::mutex> lock(mutex_);
     std::ostringstream json;
@@ -196,7 +259,8 @@ class RosDemoRuntime {
     json << "  \"runtimeState\": \"" << json_escape(state_) << "\",\n";
     json << "  \"nodeName\": \"" << json_escape(node_name_) << "\",\n";
     json << "  \"domainId\": " << domain_id_ << ",\n";
-    json << "  \"rmwImplementation\": \"rmw_fastrtps_cpp\",\n";
+    json << "  \"rmwImplementation\": \"" << kRmwImplementation << "\",\n";
+    json << "  \"discoveryServer\": \"" << json_escape(discovery_server_) << "\",\n";
     json << "  \"publishRateHz\": " << publish_rate_hz_ << ",\n";
     json << "  \"qosMode\": \"" << json_escape(qos_mode_) << "\",\n";
     json << "  \"publishedCount\": " << published_count_ << ",\n";
@@ -475,6 +539,8 @@ class RosDemoRuntime {
     audio_control_subscription_.reset();
     subscription_.reset();
     publisher_.reset();
+    tx_audio_chunk_publisher_.reset();
+    tx_audio_control_publisher_.reset();
     if (executor_ && node_) {
       try {
         executor_->remove_node(node_);
@@ -501,6 +567,7 @@ class RosDemoRuntime {
   std::string state_ = "stopped";
   std::string node_name_ = "android_phone_node";
   std::string qos_mode_ = "best_effort";
+  std::string discovery_server_;
   std::string audio_file_path_;
   std::string audio_state_ = "idle";
   std::string last_command_;
@@ -528,6 +595,8 @@ class RosDemoRuntime {
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr audio_control_subscription_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr audio_chunk_subscription_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr tx_audio_control_publisher_;
+  rclcpp::Publisher<std_msgs::msg::UInt8MultiArray>::SharedPtr tx_audio_chunk_publisher_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::ofstream audio_stream_;
   std::deque<std::vector<uint8_t>> audio_playback_queue_;
@@ -558,12 +627,14 @@ Java_com_example_ros2demo_NativeRosBridge_startSession(
     jstring node_name,
     jdouble publish_rate_hz,
     jstring qos_mode,
+    jstring discovery_server,
     jstring audio_file_path) {
   return g_runtime.start(
       static_cast<int>(domain_id),
       to_string(env, node_name),
       static_cast<double>(publish_rate_hz),
       to_string(env, qos_mode),
+      to_string(env, discovery_server),
       to_string(env, audio_file_path));
 }
 
@@ -600,4 +671,25 @@ Java_com_example_ros2demo_NativeRosBridge_drainAudioPcm(JNIEnv *env, jclass) {
         reinterpret_cast<const jbyte *>(data.data()));
   }
   return result;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_ros2demo_NativeRosBridge_publishTxAudioControl(
+    JNIEnv *env, jclass, jstring command) {
+  return g_runtime.publish_tx_audio_control(to_string(env, command));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_ros2demo_NativeRosBridge_publishTxAudioChunk(
+    JNIEnv *env, jclass, jbyteArray data) {
+  if (data == nullptr) {
+    return JNI_FALSE;
+  }
+  jsize length = env->GetArrayLength(data);
+  if (length <= 0) {
+    return g_runtime.publish_tx_audio_chunk(nullptr, 0) ? JNI_TRUE : JNI_FALSE;
+  }
+  std::vector<uint8_t> buffer(static_cast<size_t>(length));
+  env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte *>(buffer.data()));
+  return g_runtime.publish_tx_audio_chunk(buffer.data(), buffer.size()) ? JNI_TRUE : JNI_FALSE;
 }

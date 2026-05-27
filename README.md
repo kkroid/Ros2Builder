@@ -8,6 +8,8 @@
 rclcpp rmw_fastrtps_cpp std_msgs
 ```
 
+默认源码清单只包含这组包的最小依赖闭包：31 个仓库。当前最小构建的打包输出包含 94 个 `.so`，其中 93 个来自 ROS 2 install tree，另 1 个是 Android 运行时需要的 `libc++_shared.so`。
+
 ## 当前状态
 
 - 已初步走通 Android 版本编译流程。
@@ -17,9 +19,11 @@ rclcpp rmw_fastrtps_cpp std_msgs
 
 ## 目录
 
-- [docker-compose.yml](docker-compose.yml): 构建容器和挂载配置。
+- [docker-compose.yml](docker-compose.yml): 默认构建容器和挂载配置，兼容 Docker Desktop 和 Podman。
+- [docker-compose.host-gateway.yml](docker-compose.host-gateway.yml): Docker Engine 专用的 `host.docker.internal:host-gateway` override。
 - [docker/Dockerfile](docker/Dockerfile): Ubuntu 22.04 + CMake + colcon + vcstool + Python 生成工具。
-- [manifests/ros2-humble-android.repos](manifests/ros2-humble-android.repos): 可直接 `vcs import` 的 Humble 源码仓库清单。
+- [manifests/ros2-humble-android.repos](manifests/ros2-humble-android.repos): 默认最小 Humble 源码仓库清单，覆盖 `rclcpp rmw_fastrtps_cpp std_msgs`。
+- [manifests/ros2-humble-android-full.repos](manifests/ros2-humble-android-full.repos): 扩展包实验用的完整源码仓库清单。
 - [scripts/ensure_ndk.sh](scripts/ensure_ndk.sh): 下载、解压、校验 Linux Android NDK，并尝试修复 Windows 解压造成的符号链接问题。
 - [scripts/fetch_sources.sh](scripts/fetch_sources.sh): 校验 manifest，检查重复仓库和已有 checkout，然后下载源码到 `/work/src`。
 - [scripts/validate_sources.py](scripts/validate_sources.py): 校验 `.repos` 里的仓库地址、版本、重复项和外部源码目录。
@@ -36,12 +40,14 @@ rclcpp rmw_fastrtps_cpp std_msgs
 
 ## 前置要求
 
-- Docker Desktop 或 Docker Engine，支持 Docker Compose v2。
+- Docker Desktop 或 Docker Engine，支持 Docker Compose v2；也可以使用 Podman 和 `podman compose`。
 - 可访问 GitHub、ROS 2 源码仓库和 Android NDK 下载地址的网络环境。
 - 足够的磁盘空间。`work/` 会保存源码、build、install、log 和 dist；`ndk/` 会保存 NDK 缓存。
 - Windows 用户建议让 NDK 由容器下载并在 Linux 环境里解压，避免 Windows 解压破坏 NDK 内部符号链接。
 
 ## 快速开始
+
+下面示例使用 `docker compose`；如果使用 Podman，把命令中的 `docker compose` 替换为 `podman compose`。
 
 1. 复制环境变量模板：
 
@@ -58,28 +64,22 @@ NDK_DOWNLOAD_URL=https://dl.google.com/android/repository/android-ndk-r25b-linux
 ANDROID_NDK_HOME=/opt/android-ndk-cache/android-ndk-r25b-linux
 ```
 
-3. 构建 Docker 镜像。
+创建本地挂载目录。Docker Desktop 通常会自动创建 bind mount 目录；Podman 下建议显式创建，避免 `statfs ./work: no such file or directory`。
 
 ```bash
-docker compose build
+mkdir -p work ndk
 ```
 
-4. 准备 NDK。已有 zip 或已解压目录会复用；如果检测到 Windows 解压造成的坏符号链接，会尝试修复。
+3. 一键执行完整流水线。默认启动 `all-in-one` 服务，顺序准备 NDK、下载源码、构建最小集合并聚合产物。
 
 ```bash
-docker compose run --rm prepare-ndk
+docker compose up --build
 ```
 
-5. 下载源码到外部挂载的 `work/src`。
+如果镜像已经是最新的，也可以直接运行：
 
 ```bash
-docker compose run --rm fetch-sources
-```
-
-6. 构建最小可验证集合。
-
-```bash
-docker compose run --rm builder bash /scripts/build_android.sh
+docker compose up
 ```
 
 生成结果在：
@@ -88,16 +88,19 @@ docker compose run --rm builder bash /scripts/build_android.sh
 work/install/android_arm64-v8a
 ```
 
-7. 聚合可分发产物。
-
-```bash
-docker compose run --rm package-artifacts
-```
-
 输出目录默认是：
 
 ```text
 work/dist/android_arm64-v8a
+```
+
+如果要分步调试，也可以单独运行：
+
+```bash
+docker compose build
+docker compose run --rm prepare-ndk
+docker compose run --rm fetch-sources
+docker compose run --rm builder bash -lc "/scripts/build_android.sh && /scripts/package_android_artifacts.sh"
 ```
 
 ## 网络和代理
@@ -108,14 +111,40 @@ work/dist/android_arm64-v8a
 BASE_IMAGE=docker.m.daocloud.io/library/ubuntu:22.04
 ```
 
-如果你本地有代理，先在 `.env` 里设置代理。Docker Desktop 下容器访问宿主机代理通常用 `host.docker.internal`：
+如果失败的是 PC demo 使用的 `osrf/ros:humble-desktop`，设置：
+
+```dotenv
+ROS2_DEMO_IMAGE=docker.m.daocloud.io/osrf/ros:humble-desktop
+```
+
+如果你本地有代理，先在 `.env` 里设置代理。默认 [docker-compose.yml](docker-compose.yml) 不注入 Docker 专用的 `host-gateway`，这样同一份 compose 可以同时用于 Docker Desktop 和 Podman。代理地址按运行时选择。
+
+Docker Desktop 下通常用 `host.docker.internal`：
 
 ```dotenv
 HTTP_PROXY=http://host.docker.internal:7890
 HTTPS_PROXY=http://host.docker.internal:7890
 ALL_PROXY=socks5h://host.docker.internal:7891
-NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
+NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal
 ```
+
+Podman 下通常用 `host.containers.internal`：
+
+```dotenv
+HTTP_PROXY=http://host.containers.internal:7890
+HTTPS_PROXY=http://host.containers.internal:7890
+ALL_PROXY=socks5h://host.containers.internal:7891
+NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal
+```
+
+如果你用的是 Linux 上的 Docker Engine，并且容器里没有内置 `host.docker.internal`，再叠加 Docker 专用 override：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.host-gateway.yml build
+docker compose -f docker-compose.yml -f docker-compose.host-gateway.yml run --rm fetch-sources
+```
+
+这个 override 只用于 Docker Engine；Podman 下不要叠加它。
 
 `HTTP_PROXY` 和 `HTTPS_PROXY` 会用于镜像构建阶段的 `apt`、`pip`，也会用于运行阶段的 `pip`、`git`、`vcs`。`ALL_PROXY=socks5h://...` 适合 Git/pip 这类 libcurl 或 Python 工具；`apt` 对 SOCKS 支持不稳定，建议给 apt 准备 HTTP 代理端口。
 
@@ -127,14 +156,16 @@ docker compose run --rm builder bash -lc "curl -I https://github.com && git ls-r
 
 ## 源码清单
 
-下载过程会先检查 [manifests/ros2-humble-android.repos](manifests/ros2-humble-android.repos)：
+默认下载过程会先检查 [manifests/ros2-humble-android.repos](manifests/ros2-humble-android.repos)。这份清单只保留默认 `BUILD_PACKAGES` 所需的最小源码仓库；扩展包实验可以改用 [manifests/ros2-humble-android-full.repos](manifests/ros2-humble-android-full.repos)。
 
 - 每个仓库必须有固定的 `url` 和 `version`。
 - 不允许重复路径。
 - 不允许同一个 Git URL 重复出现，尤其是不同版本重复。
 - 如果 `work/src` 里已经有同名目录，必须是 Git checkout，且 remote 必须和 manifest 一致。
-- 已存在的仓库不会重复 clone，`vcs import` 使用 `--skip-existing`。
+- `fetch-sources` 会对当前 manifest 顺序执行 `vcs import --recursive --skip-existing --workers 1`；已存在的仓库不会重复 clone。
 - 拉取完成后会生成 `work/source-inventory.tsv`，记录路径、URL、manifest version 和当前 commit。
+
+默认最小清单当前包含 31 个仓库；对应默认构建产物里有 94 个 `.so`：93 个来自 `work/install/android_arm64-v8a/lib`，另 1 个是打包到 `work/dist/android_arm64-v8a/lib` 的 `libc++_shared.so`。
 
 如果只想检查清单和已有源码，不下载新仓库：
 
@@ -146,6 +177,12 @@ docker compose run --rm builder python3 /scripts/validate_sources.py --manifest 
 
 ```bash
 docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android.repos fetch-sources
+```
+
+如果要下载扩展包实验清单：
+
+```bash
+docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android-full.repos fetch-sources
 ```
 
 默认 `BUILD_PACKAGES` 是：
@@ -203,12 +240,53 @@ docker compose run --rm -e ARTIFACT_DIR=/work/dist/my_android_package package-ar
 | --- | --- | --- |
 | `ANDROID_ABI` | `arm64-v8a` | Android ABI。当前脚本和产物布局主要按 arm64 验证。 |
 | `ANDROID_API` | `29` | Android platform API level。 |
+| `ANDROID_STL` | `c++_shared` | Android C++ runtime。多 `.so` 默认用 shared；封装成单个 bridge `.so` 时才考虑实验 `c++_static`。 |
+| `BUILD_SHARED_LIBS` | `ON` | ROS 2/CMake 标准开关。默认生成共享库；静态库实验可设为 `OFF`。 |
+| `BUILD_OUTPUT_SUFFIX` | 空 | 可选输出后缀。例如设为 `static_dynamic` 时使用 `work/build/android_arm64-v8a_static_dynamic`、`work/install/android_arm64-v8a_static_dynamic`、`work/dist/android_arm64-v8a_static_dynamic`。 |
 | `BUILD_PACKAGES` | `rclcpp rmw_fastrtps_cpp std_msgs` | 传给 `colcon --packages-up-to` 的包列表。 |
 | `PARALLEL_WORKERS` | `nproc` | colcon 并行 worker 数。 |
 | `NDK_VERSION` | `r25b` | 下载和缓存的 Android NDK 版本。 |
 | `ROS2_ANDROID_WORKDIR` | `./work` | 宿主机上的源码、构建、安装和日志目录。 |
 
+## 静态库实验
+
+静态库实验只使用 ROS 2/ament/CMake 已有机制，不修改上游源码。Android demo 当前验证通过的组合是 `rmw_fastrtps_dynamic_cpp` + introspection typesupport：关闭 `BUILD_SHARED_LIBS`，固定 RMW，并禁用 RMW 运行时动态选择。输出放到独立后缀目录，避免覆盖默认共享库构建。
+
+```bash
+docker compose run --rm \
+	-e BUILD_OUTPUT_SUFFIX=static_dynamic \
+	-e BUILD_SHARED_LIBS=OFF \
+	-e BUILD_PACKAGES="rclcpp rmw_fastrtps_dynamic_cpp std_msgs" \
+	-e RMW_IMPLEMENTATION=rmw_fastrtps_dynamic_cpp \
+	-e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON \
+	-e CMAKE_POSITION_INDEPENDENT_CODE=ON \
+	-e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c \
+	-e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp \
+	builder bash /scripts/build_android.sh
+
+docker compose run --rm \
+	-e BUILD_OUTPUT_SUFFIX=static_dynamic \
+	-e BUILD_SHARED_LIBS=OFF \
+	-e RMW_IMPLEMENTATION=rmw_fastrtps_dynamic_cpp \
+	-e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON \
+	-e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c \
+	-e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp \
+	package-artifacts
+```
+
+静态链接时 ROSIDL 只能选择一个 concrete typesupport；这里固定为 introspection C/C++ typesupport，也是上游 `get_used_typesupports.cmake` 支持的标准入口。`rmw_fastrtps_cpp` + FastRTPS typesupport 的静态产物可以构建，但在 Android JNI bridge 中启动节点时会卡在 FastDDS type object 注册；`rmw_fastrtps_dynamic_cpp` 正好是官方的 introspection 路径。
+
+当前最小闭包实测静态构建可以完成：`work/dist/android_arm64-v8a_static_dynamic/lib` 中包含 88 个 `.a`，并残留 5 个 `.so`：`libc++_shared.so`、`librmw_dds_common.so`、`librosidl_typesupport_fastrtps_cpp.so`、`libspdlog.so`、`libyaml.so`。其中 `libc++_shared.so` 来自默认 `ANDROID_STL=c++_shared`；其余 4 个来自 Humble 源码中显式 `SHARED` 或 vendor 强制 shared 的包。继续把这些也改成 `.a` 需要上游补丁，不建议作为默认路线。
+
+这个模式的目标不是把 `.a` 直接放进 APK，而是验证最小 ROS 2 闭包能静态到什么程度。实际集成到现有系统时，更常规的做法是把这些 `.a` 链进一个你控制的 JNI/bridge `.so`，只导出很小的业务 API，用它隔离 ROS 2 依赖和符号。Android demo 就走这条路：通过 [examples/android-ros2-demo/scripts/sync_ros2_artifacts.ps1](examples/android-ros2-demo/scripts/sync_ros2_artifacts.ps1) 维护的跳过列表，把当前 demo 用不到的 `librmw_fastrtps_cpp.a`、`libaction_msgs__*`、`libunique_identifier_msgs__*`、`libtest_msgs__*`、`librcl_logging_spdlog.a` 与 `libspdlog.so` 进一步剔除，得到 65 个 `.a` + 4 个 `.so` 的最小工件子集。更多细节见 [examples/android-ros2-demo/docs/DEPENDENCY_AUDIT.md](examples/android-ros2-demo/docs/DEPENDENCY_AUDIT.md)。
+
 ## 扩展构建
+
+默认源码清单只覆盖最小通信链路。构建下面这些扩展包前，先拉取完整实验清单：
+
+```bash
+docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android-full.repos fetch-sources
+```
 
 构建更多标准消息：
 
@@ -242,7 +320,7 @@ rm -rf work/build work/install work/log work/dist
 
 - APK 必须打包所有生成的 `.so`，Android 系统不会预装 ROS 2。
 - Fast DDS 发现依赖网络能力，App 需要 `INTERNET`、`ACCESS_WIFI_STATE`、`CHANGE_WIFI_MULTICAST_STATE` 权限，并在运行时持有 `WifiManager.MulticastLock`。
-- demo 默认使用 `ROS_DOMAIN_ID=0` 和 `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`；如果修改 domain id，Android App 输入框和 PC peer 环境变量必须保持一致。
+- Android demo 默认使用 `ROS_DOMAIN_ID=0` 和 `RMW_IMPLEMENTATION=rmw_fastrtps_dynamic_cpp`；如果修改 domain id，Android App 输入框和 PC peer 环境变量必须保持一致。
 - `rclcpp::init` 不要放在 Android UI 主线程。
 - Android 后台限制很强，长期运行节点应放进 Foreground Service。
 - 首轮排错优先看 `adb logcat`，并确认 APK 中 `libc++_shared.so` 和 ROS 2 相关 `.so` 都已打包。
@@ -298,7 +376,7 @@ ndk.dir=D\:\\ENV\\android-ndk-r25b-windows\\android-ndk-r25b-windows
 examples/android-ros2-demo/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-当前实测 debug APK 约 6.3 MiB，里面包含 95 个 `arm64-v8a` native `.so`。这些 `.so` 原始体积约 18.6 MiB，压缩进 APK 后约 6.1 MiB，属于合理范围。复制进 demo 的 `jniLibs/`、`ros2/`、`assets/`，以及 Gradle/CMake build 输出都已在示例 `.gitignore` 中忽略。
+当前实测 debug APK 约 8.9 MiB；`lib/arm64-v8a/` 内只有 5 个 native 库：业务桥 `libros2_android_demo.so`（≈12.6 MiB，调试符号未 strip），以及 `libc++_shared.so`、`librmw_dds_common.so`、`librosidl_typesupport_fastrtps_cpp.so`、`libyaml.so` 共 4 个无法静态化的 ROS 2 共享库。所有 ROS 2 静态归档已在链接阶段并入业务桥，不再以独立 `.so` 形式出现。复制进 demo 的 `jniLibs/`、`ros2/`、`assets/`，以及 Gradle/CMake build 输出都已在示例 `.gitignore` 中忽略。
 
 安装到 Android 29+、`arm64-v8a` 真机后，打开 App：
 
@@ -465,7 +543,7 @@ Remove-Item Env:\WSLG_DIR
 - Android App 是否已经点击 `Start`，且状态为 `running`。
 - 手机 Wi-Fi 是否允许组播；Android App 是否持有 `MulticastLock`。
 - 防火墙、VPN、热点隔离或 Docker Desktop 网络是否阻断 UDP 多播。
-- APK 是否确实打包了 `libc++_shared.so`、`librclcpp.so`、`librmw_fastrtps_cpp.so`、`libfastrtps.so` 等 native 库。
+- APK 是否确实打包了 `libc++_shared.so`、`librmw_dds_common.so`、`librosidl_typesupport_fastrtps_cpp.so`、`libyaml.so` 以及业务桥 `libros2_android_demo.so`（ROS 2 静态归档已链接进去）。
 
 Windows + WSL 镜像网络下，如果 WSL 和 Windows 都显示同一个 Wi-Fi IP，但 Android 仍发现不了 PC peer，先确认手机能否访问 PC。常见现象是 Windows/WSL 可以 ping 手机，但手机 ping 不回 PC，这通常是 Windows 当前 Wi-Fi 被标为 Public 网络并阻止入站流量。可以用管理员 PowerShell 运行：
 

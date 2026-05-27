@@ -4,6 +4,10 @@ This example is a small Android smoke-test app for the ROS 2 Humble Android arti
 
 The design follows [../../docs/ANDROID_TEST_APP_PRD.md](../../docs/ANDROID_TEST_APP_PRD.md): ROS 2 runtime logic lives in C++, while the Android Java layer handles permissions, Foreground Service startup and UI rendering.
 
+> 依赖瘦身审计与后续可选优化路径见 [docs/DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md)。
+>
+> PC ↔ Android 局域网联调测试计划见 [docs/LAN_INTEROP_TEST_PLAN.md](docs/LAN_INTEROP_TEST_PLAN.md)。
+
 ## Stack
 
 - Java 17
@@ -12,7 +16,7 @@ The design follows [../../docs/ANDROID_TEST_APP_PRD.md](../../docs/ANDROID_TEST_
 - Android NDK r25b (`25.1.8937393`)
 - CMake native build
 - `arm64-v8a` only for the first demo
-- ROS 2 shared libraries copied from `../../work/dist/android_arm64-v8a`
+- ROS 2 static demo artifacts copied from `../../work/dist/android_arm64-v8a_static_dynamic`
 
 ## Prepare ROS 2 Artifacts
 
@@ -28,11 +32,12 @@ Or from a POSIX shell:
 ./scripts/sync_ros2_artifacts.sh
 ```
 
-The scripts copy:
+The scripts copy the current static dynamic-RMW demo artifacts by default:
 
-- `../../work/dist/android_arm64-v8a/jniLibs/arm64-v8a/*.so` to `app/src/main/jniLibs/arm64-v8a/`
-- `../../work/dist/android_arm64-v8a/include/` to `app/src/main/ros2/include/`
-- `../../work/dist/android_arm64-v8a/manifest/` to `app/src/main/assets/ros2-manifest/`
+- `../../work/dist/android_arm64-v8a_static_dynamic/jniLibs/arm64-v8a/*.so` to `app/src/main/jniLibs/arm64-v8a/`
+- `../../work/dist/android_arm64-v8a_static_dynamic/lib/*.a` to `app/src/main/ros2/lib/arm64-v8a/`
+- `../../work/dist/android_arm64-v8a_static_dynamic/include/` to `app/src/main/ros2/include/`
+- `../../work/dist/android_arm64-v8a_static_dynamic/manifest/` to `app/src/main/assets/ros2-manifest/`
 
 The copied libraries and headers are ignored by Git because they are generated build artifacts.
 

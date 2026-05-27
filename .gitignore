@@ -10,3 +10,11 @@
 /.vscode/
 .DS_Store
 Thumbs.db
+
+# Generated Python caches.
+__pycache__/
+*.py[cod]
+
+# Local audio files used during manual interop testing.
+/examples/*.wav
+/examples/*.WAV

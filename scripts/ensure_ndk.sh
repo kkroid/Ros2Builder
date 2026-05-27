@@ -58,6 +58,12 @@ validate_ndk() {
   "${clang}" --version >/dev/null 2>&1 || return 1
 }
 
+validate_archive() {
+  local archive="$1"
+  [[ -f "${archive}" ]] || return 1
+  unzip -tq "${archive}" >/dev/null 2>&1
+}
+
 if validate_ndk "${ndk_home}"; then
   echo "Android NDK is ready: ${ndk_home}"
   exit 0
@@ -80,9 +86,22 @@ if [[ ! -f "${ndk_zip}" ]]; then
   print_proxy_env
   echo "Downloading Android NDK ${ndk_version}: ${ndk_url}"
   curl -fL --retry 5 --retry-delay 3 -C - -o "${ndk_zip_part}" "${ndk_url}"
-  mv "${ndk_zip_part}" "${ndk_zip}"
+  if [[ -f "${ndk_zip_part}" ]]; then
+    mv "${ndk_zip_part}" "${ndk_zip}"
+  elif [[ -f "${ndk_zip}" ]]; then
+    echo "Download completed into existing archive path: ${ndk_zip}"
+  else
+    echo "NDK download finished but no archive was created: ${ndk_zip_part}" >&2
+    exit 2
+  fi
 else
   echo "Reusing cached NDK archive: ${ndk_zip}"
+fi
+
+if ! validate_archive "${ndk_zip}"; then
+  echo "Cached NDK archive is invalid: ${ndk_zip}" >&2
+  rm -f "${ndk_zip}" "${ndk_zip_part}"
+  exit 2
 fi
 
 extract_parent="${ndk_cache_dir}/.extract-${ndk_version}"
@@ -90,7 +109,7 @@ rm -rf "${extract_parent}"
 mkdir -p "${extract_parent}"
 
 echo "Extracting Android NDK into ${ndk_cache_dir}"
-unzip -q "${ndk_zip}" -d "${extract_parent}"
+unzip -qo "${ndk_zip}" -d "${extract_parent}"
 
 extracted_dir="$(find "${extract_parent}" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 if [[ -z "${extracted_dir}" ]]; then

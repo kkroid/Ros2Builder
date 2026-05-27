@@ -9,10 +9,12 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -21,15 +23,22 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class MainActivity extends Activity {
+    private static final String TAG = "Ros2DemoApp";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView statusView;
     private EditText domainInput;
     private EditText nodeInput;
     private EditText rateInput;
+    private EditText discoveryInput;
     private EditText commandInput;
     private TextView audioSizeView;
     private boolean polling;
@@ -39,6 +48,14 @@ public class MainActivity extends Activity {
     private volatile boolean audioPlaybackRunning;
     private long lastAudioFileLength = -1;
     private long lastAudioFileModified = -1;
+    private TextView txAudioView;
+    private Thread txAudioThread;
+    private volatile boolean txAudioRunning;
+    private volatile double txAudioSpeed = 1.0;
+    private int txAudioRequestId;
+    private static final int REQUEST_PICK_AUDIO = 2001;
+    private static final String EXTRA_SEND_AUDIO_FILE = "sendAudioFile";
+    private static final String EXTRA_SEND_SPEED = "sendSpeed";
 
     private final Runnable pollSnapshot = new Runnable() {
         @Override
@@ -57,6 +74,13 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         requestRuntimePermissions();
         setContentView(buildContentView());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIntentAudioSend(intent);
     }
 
     @Override
@@ -96,6 +120,7 @@ public class MainActivity extends Activity {
         domainInput = input(String.valueOf(Ros2DemoService.DEFAULT_DOMAIN_ID));
         nodeInput = input(Ros2DemoService.DEFAULT_NODE_NAME);
         rateInput = input("1.0");
+        discoveryInput = input(getIntent().getStringExtra(Ros2DemoService.EXTRA_DISCOVERY_SERVER));
         commandInput = input("ping");
 
         root.addView(label("ROS_DOMAIN_ID"));
@@ -104,6 +129,8 @@ public class MainActivity extends Activity {
         root.addView(nodeInput, matchWrap());
         root.addView(label("Publish rate Hz"));
         root.addView(rateInput, matchWrap());
+        root.addView(label("ROS_DISCOVERY_SERVER"));
+        root.addView(discoveryInput, matchWrap());
 
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER_VERTICAL);
@@ -138,6 +165,24 @@ public class MainActivity extends Activity {
         playAudio.setOnClickListener(view -> playReceivedAudio());
         root.addView(playAudio, matchWrap());
 
+        txAudioView = new TextView(this);
+        txAudioView.setTextSize(14);
+        txAudioView.setPadding(0, dp(12), 0, dp(4));
+        txAudioView.setText("Send to PC: idle");
+        root.addView(txAudioView, matchWrap());
+
+        LinearLayout txButtons = new LinearLayout(this);
+        Button pickAudio = new Button(this);
+        pickAudio.setText("Send Audio File to PC");
+        pickAudio.setOnClickListener(view -> pickAudioFile());
+        txButtons.addView(pickAudio, weightedButton());
+
+        Button cancelTx = new Button(this);
+        cancelTx.setText("Cancel Send");
+        cancelTx.setOnClickListener(view -> cancelTxAudio());
+        txButtons.addView(cancelTx, weightedButton());
+        root.addView(txButtons, matchWrap());
+
         statusView = new TextView(this);
         statusView.setTextSize(13);
         statusView.setTypeface(Typeface.MONOSPACE);
@@ -147,6 +192,11 @@ public class MainActivity extends Activity {
 
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(root);
+
+        if (getIntent().getBooleanExtra(Ros2DemoService.EXTRA_AUTO_START, false)) {
+            handler.post(this::startRuntime);
+        }
+        handleIntentAudioSend(getIntent());
         return scrollView;
     }
 
@@ -169,6 +219,7 @@ public class MainActivity extends Activity {
         intent.putExtra(Ros2DemoService.EXTRA_NODE_NAME, nodeName);
         intent.putExtra(Ros2DemoService.EXTRA_RATE_HZ, parseDouble(rateInput.getText().toString(), 1.0));
         intent.putExtra(Ros2DemoService.EXTRA_QOS, "best_effort");
+        intent.putExtra(Ros2DemoService.EXTRA_DISCOVERY_SERVER, discoveryInput.getText().toString().trim());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent);
         } else {
@@ -227,6 +278,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         releaseMediaPlayer();
+        cancelTxAudio();
         super.onDestroy();
     }
 
@@ -358,5 +410,241 @@ public class MainActivity extends Activity {
 
     private boolean isValidNodeName(String text) {
         return text.matches("[A-Za-z_][A-Za-z0-9_]*");
+    }
+
+    // ----- Streaming audio from phone to PC -----
+
+    private void pickAudioFile() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("audio/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"audio/wav", "audio/x-wav", "audio/*"});
+        startActivityForResult(intent, REQUEST_PICK_AUDIO);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PICK_AUDIO && resultCode == Activity.RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri != null) {
+                startTxAudio(uri);
+            }
+        }
+    }
+
+    private void cancelTxAudio() {
+        txAudioRequestId++;
+        txAudioRunning = false;
+        if (txAudioThread != null) {
+            txAudioThread.interrupt();
+            txAudioThread = null;
+        }
+    }
+
+    private void startTxAudio(Uri uri) {
+        cancelTxAudio();
+        int requestId = ++txAudioRequestId;
+        txAudioView.setText("Send to PC: starting ROS session...");
+        startRuntime();
+        handler.postDelayed(() -> {
+            if (requestId != txAudioRequestId) {
+                return;
+            }
+            txAudioRunning = true;
+            txAudioView.setText("Send to PC: reading file...");
+            txAudioThread = new Thread(() -> sendAudioFile(uri), "ros2-audio-tx");
+            txAudioThread.start();
+        }, 3000);
+    }
+
+    private void handleIntentAudioSend(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+        String path = intent.getStringExtra(EXTRA_SEND_AUDIO_FILE);
+        if (path == null || path.trim().isEmpty()) {
+            return;
+        }
+        txAudioSpeed = parseSendSpeed(intent);
+        Log.i(TAG, "auto send audio file: " + path.trim());
+        handler.post(() -> startTxAudio(Uri.fromFile(new File(path.trim()))));
+    }
+
+    private void sendAudioFile(Uri uri) {
+        try {
+            byte[] all = readAll(uri);
+            WavInfo info = parseWav(all);
+            Log.i(TAG, "send audio loaded uri=" + uri + " bytes=" + all.length
+                    + " rate=" + info.rate + " channels=" + info.channels + " width=" + info.width
+                    + " pcm=" + info.pcm.length + " speed=" + txAudioSpeed);
+            postTx("loaded " + all.length + " bytes, "
+                    + info.rate + "Hz/" + info.channels + "ch/" + info.width + "B "
+                    + "(" + info.pcm.length + " PCM bytes), speed=" + txAudioSpeed + "x");
+
+            if (!NativeRosBridge.publishTxAudioControl(
+                    "begin_stream:" + info.rate + ":" + info.channels + ":" + info.width)) {
+                Log.w(TAG, "send audio publish begin_stream failed");
+                postTx("FAILED: publish control (session not running?)");
+                return;
+            }
+            // give subscriber a moment to flip state
+            Thread.sleep(200);
+
+            final int chunkMs = 100;
+            final int bytesPerSample = info.channels * info.width;
+            final int samplesPerChunk = Math.max(1, info.rate * chunkMs / 1000);
+            final int chunkBytes = samplesPerChunk * bytesPerSample;
+            final double speed = Math.max(1.0, txAudioSpeed);
+            final long periodNanos = (long) (chunkMs * 1_000_000L / speed);
+
+            int sent = 0;
+            int total = info.pcm.length;
+            int chunks = 0;
+            long nextDeadline = System.nanoTime();
+            while (txAudioRunning && sent < total) {
+                int end = Math.min(sent + chunkBytes, total);
+                byte[] slice = new byte[end - sent];
+                System.arraycopy(info.pcm, sent, slice, 0, slice.length);
+                if (!NativeRosBridge.publishTxAudioChunk(slice)) {
+                    Log.w(TAG, "send audio publish chunk failed at " + sent + " bytes");
+                    postTx("FAILED: publish chunk at " + sent + " bytes");
+                    return;
+                }
+                sent = end;
+                chunks++;
+                if (chunks % 10 == 0) {
+                    int progress = (int) (sent * 100L / Math.max(1, total));
+                    postTx("sending " + sent + "/" + total + " bytes (" + progress + "%) chunks=" + chunks);
+                }
+                nextDeadline += periodNanos;
+                long sleep = nextDeadline - System.nanoTime();
+                if (periodNanos > 0 && sleep > 0) {
+                    Thread.sleep(sleep / 1_000_000L, (int) (sleep % 1_000_000L));
+                } else {
+                    nextDeadline = System.nanoTime();
+                }
+            }
+            Thread.sleep(200);
+            NativeRosBridge.publishTxAudioControl("end_stream");
+            Log.i(TAG, "send audio done sent=" + sent + " total=" + total + " chunks=" + chunks);
+            postTx("done: sent " + sent + "/" + total + " bytes in " + chunks + " chunks");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            NativeRosBridge.publishTxAudioControl("end_stream");
+            Log.i(TAG, "send audio cancelled");
+            postTx("cancelled");
+        } catch (Exception error) {
+            Log.e(TAG, "send audio failed", error);
+            postTx("FAILED: " + error.getClass().getSimpleName() + ": " + error.getMessage());
+        } finally {
+            txAudioRunning = false;
+        }
+    }
+
+    private double parseSendSpeed(Intent intent) {
+        Bundle extras = intent.getExtras();
+        if (extras == null || !extras.containsKey(EXTRA_SEND_SPEED)) {
+            return 1.0;
+        }
+        Object value = extras.get(EXTRA_SEND_SPEED);
+        try {
+            if (value instanceof Number) {
+                return Math.max(1.0, ((Number) value).doubleValue());
+            }
+            if (value instanceof String) {
+                return Math.max(1.0, Double.parseDouble(((String) value).trim()));
+            }
+        } catch (RuntimeException ignored) {
+            return 1.0;
+        }
+        return 1.0;
+    }
+
+    private void postTx(String text) {
+        handler.post(() -> txAudioView.setText("Send to PC: " + text));
+    }
+
+    private byte[] readAll(Uri uri) throws IOException {
+        InputStream stream;
+        if ("file".equals(uri.getScheme()) || uri.getScheme() == null) {
+            stream = new FileInputStream(new File(uri.getPath()));
+        } else {
+            stream = getContentResolver().openInputStream(uri);
+        }
+        try (InputStream input = stream) {
+            if (input == null) {
+                throw new IOException("cannot open URI");
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream(64 * 1024);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = input.read(buf)) > 0) {
+                out.write(buf, 0, n);
+            }
+            return out.toByteArray();
+        }
+    }
+
+    private static final class WavInfo {
+        final int rate;
+        final int channels;
+        final int width;
+        final byte[] pcm;
+        WavInfo(int rate, int channels, int width, byte[] pcm) {
+            this.rate = rate;
+            this.channels = channels;
+            this.width = width;
+            this.pcm = pcm;
+        }
+    }
+
+    /**
+     * Minimal RIFF/WAVE parser. Accepts a top-level RIFF/WAVE with a single
+     * fmt chunk (PCM, format=1) and a single data chunk. Throws on anything else.
+     */
+    private static WavInfo parseWav(byte[] data) throws IOException {
+        if (data.length < 44) {
+            throw new IOException("file too small to be WAV");
+        }
+        ByteBuffer bb = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        if (data[0] != 'R' || data[1] != 'I' || data[2] != 'F' || data[3] != 'F') {
+            throw new IOException("not a RIFF file");
+        }
+        if (data[8] != 'W' || data[9] != 'A' || data[10] != 'V' || data[11] != 'E') {
+            throw new IOException("not a WAVE file");
+        }
+        int pos = 12;
+        int rate = 0;
+        int channels = 0;
+        int width = 0;
+        byte[] pcm = null;
+        while (pos + 8 <= data.length) {
+            String id = new String(data, pos, 4);
+            int size = bb.getInt(pos + 4);
+            int payload = pos + 8;
+            if (size < 0 || payload + size > data.length) {
+                size = data.length - payload;
+            }
+            if ("fmt ".equals(id)) {
+                short format = bb.getShort(payload);
+                if (format != 1) {
+                    throw new IOException("only PCM WAV supported (format=" + format + ")");
+                }
+                channels = bb.getShort(payload + 2) & 0xffff;
+                rate = bb.getInt(payload + 4);
+                short bitsPerSample = bb.getShort(payload + 14);
+                width = (bitsPerSample & 0xffff) / 8;
+            } else if ("data".equals(id)) {
+                pcm = new byte[size];
+                System.arraycopy(data, payload, pcm, 0, size);
+                break;
+            }
+            pos = payload + size + (size & 1); // chunks are word-aligned
+        }
+        if (rate <= 0 || channels <= 0 || width <= 0 || pcm == null) {
+            throw new IOException("missing fmt/data chunk");
+        }
+        return new WavInfo(rate, channels, width, pcm);
     }
 }

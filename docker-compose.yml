@@ -1,5 +1,4 @@
-services:
-  builder: &builder
+x-builder: &builder
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -8,16 +7,12 @@ services:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         ALL_PROXY: ${ALL_PROXY:-}
-        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal}
         http_proxy: ${HTTP_PROXY:-}
         https_proxy: ${HTTPS_PROXY:-}
         all_proxy: ${ALL_PROXY:-}
-        no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal}
-      extra_hosts:
-        - host.docker.internal:host-gateway
+        no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal}
     image: ros2-humble-android-builder:latest
-    extra_hosts:
-      - host.docker.internal:host-gateway
     working_dir: /work
     environment:
       ROS_DISTRO: humble
@@ -27,17 +22,24 @@ services:
       NDK_DOWNLOAD_URL: ${NDK_DOWNLOAD_URL:-https://dl.google.com/android/repository/android-ndk-r25b-linux.zip}
       ANDROID_ABI: ${ANDROID_ABI:-arm64-v8a}
       ANDROID_API: ${ANDROID_API:-29}
+      ANDROID_STL: ${ANDROID_STL:-c++_shared}
       BUILD_SHARED_LIBS: ${BUILD_SHARED_LIBS:-ON}
+      BUILD_OUTPUT_SUFFIX: ${BUILD_OUTPUT_SUFFIX:-}
       BUILD_PACKAGES: ${BUILD_PACKAGES:-rclcpp rmw_fastrtps_cpp std_msgs}
+      CMAKE_POSITION_INDEPENDENT_CODE: ${CMAKE_POSITION_INDEPENDENT_CODE:-}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION: ${RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION:-}
+      STATIC_ROSIDL_TYPESUPPORT_C: ${STATIC_ROSIDL_TYPESUPPORT_C:-}
+      STATIC_ROSIDL_TYPESUPPORT_CPP: ${STATIC_ROSIDL_TYPESUPPORT_CPP:-}
       SOURCE_MANIFEST: ${SOURCE_MANIFEST:-/manifests/ros2-humble-android.repos}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal}
       http_proxy: ${HTTP_PROXY:-}
       https_proxy: ${HTTPS_PROXY:-}
       all_proxy: ${ALL_PROXY:-}
-      no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal}
+      no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal}
     volumes:
       - ${ROS2_ANDROID_WORKDIR:-./work}:/work
       - ${NDK_CACHE_DIR:-./ndk}:/opt/android-ndk-cache
@@ -45,19 +47,32 @@ services:
       - ./scripts:/scripts:ro
     command: bash
 
+services:
+  all-in-one:
+    <<: *builder
+    command: bash -lc "/scripts/ensure_ndk.sh && /scripts/fetch_sources.sh && /scripts/build_android.sh && /scripts/package_android_artifacts.sh"
+
+  builder:
+    <<: *builder
+    profiles: [manual]
+
   prepare-ndk:
     <<: *builder
+    profiles: [manual]
     command: bash /scripts/ensure_ndk.sh
 
   fetch-sources:
     <<: *builder
+    profiles: [manual]
     command: bash /scripts/fetch_sources.sh
 
   package-artifacts:
     <<: *builder
+    profiles: [manual]
     command: bash /scripts/package_android_artifacts.sh
 
   ros2-demo-peer:
+    profiles: [demo]
     image: ${ROS2_DEMO_IMAGE:-osrf/ros:humble-desktop}
     network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
     environment:
@@ -75,11 +90,20 @@ services:
     command: bash /demo/run_peer.sh
 
   ros2-demo-audio:
+    profiles: [demo]
     build:
       context: .
       dockerfile: docker/Dockerfile.ros2-demo
       args:
         BASE_IMAGE: ${ROS2_DEMO_IMAGE:-osrf/ros:humble-desktop}
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal}
+        http_proxy: ${HTTP_PROXY:-}
+        https_proxy: ${HTTPS_PROXY:-}
+        all_proxy: ${ALL_PROXY:-}
+        no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal}
     image: ros2-android-demo-audio:latest
     network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
     environment:
@@ -95,6 +119,7 @@ services:
     command: bash -lc "source /opt/ros/humble/setup.bash && python3 /demo/record_and_send_audio.py --backend parec --source $${PULSE_SOURCE} --duration $${AUDIO_DURATION:-3}"
 
   ros2-demo-audio-shell:
+    profiles: [demo]
     image: ros2-android-demo-audio:latest
     network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
     environment:
@@ -109,6 +134,7 @@ services:
     command: bash -lc "source /opt/ros/humble/setup.bash && exec bash"
 
   ros2-demo-shell:
+    profiles: [demo]
     image: ${ROS2_DEMO_IMAGE:-osrf/ros:humble-desktop}
     network_mode: ${ROS2_DEMO_NETWORK_MODE:-host}
     environment:

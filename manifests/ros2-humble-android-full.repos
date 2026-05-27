@@ -23,6 +23,26 @@ repositories:
     type: git
     url: https://github.com/eProsima/foonathan_memory_vendor.git
     version: master
+  ros/class_loader:
+    type: git
+    url: https://github.com/ros/class_loader.git
+    version: humble
+  ros/pluginlib:
+    type: git
+    url: https://github.com/ros/pluginlib.git
+    version: humble
+  ros/ros_environment:
+    type: git
+    url: https://github.com/ros/ros_environment.git
+    version: humble
+  ros-perception/image_common:
+    type: git
+    url: https://github.com/ros-perception/image_common.git
+    version: humble
+  ros-planning/navigation_msgs:
+    type: git
+    url: https://github.com/ros-planning/navigation_msgs.git
+    version: humble
   ros-tooling/libstatistics_collector:
     type: git
     url: https://github.com/ros-tooling/libstatistics_collector.git
@@ -35,9 +55,21 @@ repositories:
     type: git
     url: https://github.com/ros2/common_interfaces.git
     version: humble
+  ros2/console_bridge_vendor:
+    type: git
+    url: https://github.com/ros2/console_bridge_vendor.git
+    version: humble
+  ros2/geometry2:
+    type: git
+    url: https://github.com/ros2/geometry2.git
+    version: humble
   ros2/libyaml_vendor:
     type: git
     url: https://github.com/ros2/libyaml_vendor.git
+    version: humble
+  ros2/message_filters:
+    type: git
+    url: https://github.com/ros2/message_filters.git
     version: humble
   ros2/python_cmake_module:
     type: git
@@ -87,9 +119,17 @@ repositories:
     type: git
     url: https://github.com/ros2/ros2_tracing.git
     version: humble
+  ros2/rosbag2:
+    type: git
+    url: https://github.com/ros2/rosbag2.git
+    version: humble
   ros2/rosidl:
     type: git
     url: https://github.com/ros2/rosidl.git
+    version: humble
+  ros2/rosidl_dds:
+    type: git
+    url: https://github.com/ros2/rosidl_dds.git
     version: humble
   ros2/rosidl_defaults:
     type: git
@@ -98,6 +138,10 @@ repositories:
   ros2/rosidl_python:
     type: git
     url: https://github.com/ros2/rosidl_python.git
+    version: humble
+  ros2/rosidl_runtime_py:
+    type: git
+    url: https://github.com/ros2/rosidl_runtime_py.git
     version: humble
   ros2/rosidl_typesupport:
     type: git
@@ -119,7 +163,15 @@ repositories:
     type: git
     url: https://github.com/ros2/test_interface_files.git
     version: humble
+  ros2/tinyxml2_vendor:
+    type: git
+    url: https://github.com/ros2/tinyxml2_vendor.git
+    version: humble
   ros2/unique_identifier_msgs:
     type: git
     url: https://github.com/ros2/unique_identifier_msgs.git
+    version: humble
+  ros2/yaml_cpp_vendor:
+    type: git
+    url: https://github.com/ros2/yaml_cpp_vendor.git
     version: humble

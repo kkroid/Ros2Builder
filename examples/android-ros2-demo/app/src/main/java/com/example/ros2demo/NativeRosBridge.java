@@ -8,7 +8,14 @@ public final class NativeRosBridge {
     private NativeRosBridge() {
     }
 
-    public static native boolean startSession(int domainId, String nodeName, double publishRateHz, String qosMode, String audioFilePath);
+    public static native boolean startSession(
+        int domainId,
+        String nodeName,
+        double publishRateHz,
+        String qosMode,
+        String discoveryServer,
+        String audioFilePath
+    );
 
     public static native void stopSession();
 
@@ -19,4 +26,8 @@ public final class NativeRosBridge {
     public static native long getAudioFileSize();
 
     public static native byte[] drainAudioPcm();
+
+    public static native boolean publishTxAudioControl(String command);
+
+    public static native boolean publishTxAudioChunk(byte[] data);
 }

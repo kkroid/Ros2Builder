@@ -18,8 +18,8 @@ python3 /scripts/validate_sources.py \
 	--src "${src_dir}" \
 	--check-existing
 
-echo "Importing sources from ${manifest} into ${workspace}/src"
-vcs import --recursive --skip-existing "${src_dir}" < "${manifest}"
+echo "Importing full source manifest from ${manifest} into ${workspace}/src"
+vcs import --recursive --skip-existing --workers 1 "${src_dir}" < "${manifest}"
 
 echo "Validating imported sources and writing inventory"
 python3 /scripts/validate_sources.py \

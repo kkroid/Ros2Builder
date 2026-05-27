@@ -2,7 +2,20 @@ ARG BASE_IMAGE=osrf/ros:humble-desktop
 FROM ${BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG all_proxy
+ARG no_proxy
 
-RUN apt-get update \
+RUN set -eux; \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}"; \
+    export https_proxy="${https_proxy:-${HTTPS_PROXY:-}}"; \
+    export all_proxy="${all_proxy:-${ALL_PROXY:-}}"; \
+    export no_proxy="${no_proxy:-${NO_PROXY:-localhost,127.0.0.1,::1}}"; \
+    apt-get update \
     && apt-get install -y --no-install-recommends pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*

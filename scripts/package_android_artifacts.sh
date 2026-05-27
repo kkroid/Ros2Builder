@@ -3,9 +3,15 @@ set -euo pipefail
 
 workspace="${WORKSPACE_DIR:-/work}"
 android_abi="${ANDROID_ABI:-arm64-v8a}"
+android_stl="${ANDROID_STL:-c++_shared}"
 ndk_home="${ANDROID_NDK_HOME:-/opt/android-ndk-cache/android-ndk-r25b-linux}"
-install_prefix="${ANDROID_INSTALL_PREFIX:-${workspace}/install/android_${android_abi}}"
-artifact_root="${ARTIFACT_DIR:-${workspace}/dist/android_${android_abi}}"
+build_output_suffix="${BUILD_OUTPUT_SUFFIX:-}"
+build_label="android_${android_abi}"
+if [[ -n "${build_output_suffix}" ]]; then
+  build_label="${build_label}_${build_output_suffix}"
+fi
+install_prefix="${ANDROID_INSTALL_PREFIX:-${workspace}/install/${build_label}}"
+artifact_root="${ARTIFACT_DIR:-${workspace}/dist/${build_label}}"
 clean_artifact_dir="${ARTIFACT_CLEAN:-ON}"
 copy_jni_libs="${ARTIFACT_WITH_JNILIBS:-ON}"
 checksum_manifest="${ARTIFACT_CHECKSUMS:-OFF}"
@@ -73,26 +79,32 @@ if [[ -d "${install_prefix}/lib" ]]; then
   while IFS= read -r -d '' shared_lib; do
     copy_file "${shared_lib}" "${artifact_root}/lib"
   done < <(find "${install_prefix}/lib" -type f -name '*.so*' -print0 | sort -z)
+
+  while IFS= read -r -d '' static_lib; do
+    copy_file "${static_lib}" "${artifact_root}/lib"
+  done < <(find "${install_prefix}/lib" -type f -name '*.a' -print0 | sort -z)
 fi
 
-libcpp_shared=""
-for candidate in \
-  "${ndk_home}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" \
-  "${ndk_home}/sources/cxx-stl/llvm-libc++/libs/${android_abi}/libc++_shared.so"; do
-  if [[ -f "${candidate}" ]]; then
-    libcpp_shared="${candidate}"
-    break
+if [[ "${android_stl}" == "c++_shared" ]]; then
+  libcpp_shared=""
+  for candidate in \
+    "${ndk_home}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" \
+    "${ndk_home}/sources/cxx-stl/llvm-libc++/libs/${android_abi}/libc++_shared.so"; do
+    if [[ -f "${candidate}" ]]; then
+      libcpp_shared="${candidate}"
+      break
+    fi
+  done
+
+  if [[ -z "${libcpp_shared}" ]]; then
+    libcpp_shared="$(find "${ndk_home}" -path "*/${android_abi}/libc++_shared.so" -o -path "*/aarch64-linux-android/libc++_shared.so" | head -n 1 || true)"
   fi
-done
 
-if [[ -z "${libcpp_shared}" ]]; then
-  libcpp_shared="$(find "${ndk_home}" -path "*/${android_abi}/libc++_shared.so" -o -path "*/aarch64-linux-android/libc++_shared.so" | head -n 1 || true)"
-fi
-
-if [[ -n "${libcpp_shared}" && -f "${libcpp_shared}" ]]; then
-  copy_file "${libcpp_shared}" "${artifact_root}/lib"
-else
-  echo "Warning: libc++_shared.so was not found under ${ndk_home}" >&2
+  if [[ -n "${libcpp_shared}" && -f "${libcpp_shared}" ]]; then
+    copy_file "${libcpp_shared}" "${artifact_root}/lib"
+  else
+    echo "Warning: libc++_shared.so was not found under ${ndk_home}" >&2
+  fi
 fi
 
 if [[ "${copy_jni_libs}" == "ON" ]]; then
@@ -106,8 +118,12 @@ cat > "${artifact_root}/manifest/build-info.txt" <<EOF
 ROS_DISTRO=${ROS_DISTRO:-humble}
 ANDROID_ABI=${android_abi}
 ANDROID_API=${ANDROID_API:-29}
-ANDROID_STL=c++_shared
-RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ANDROID_STL=${android_stl}
+BUILD_SHARED_LIBS=${BUILD_SHARED_LIBS:-ON}
+RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=${RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION:-}
+STATIC_ROSIDL_TYPESUPPORT_C=${STATIC_ROSIDL_TYPESUPPORT_C:-}
+STATIC_ROSIDL_TYPESUPPORT_CPP=${STATIC_ROSIDL_TYPESUPPORT_CPP:-}
 INSTALL_PREFIX=${install_prefix}
 ARTIFACT_ROOT=${artifact_root}
 ARTIFACT_WITH_METADATA=${copy_metadata}
@@ -141,11 +157,13 @@ fi
 ) > "${artifact_root}/manifest/artifact-manifest.tsv"
 
 so_count="$(find "${artifact_root}/lib" -maxdepth 1 -type f -name '*.so*' | wc -l)"
+static_count="$(find "${artifact_root}/lib" -maxdepth 1 -type f -name '*.a' | wc -l)"
 header_count="$(find "${artifact_root}/include" -type f | wc -l)"
 total_bytes="$(du -sb "${artifact_root}" | awk '{print $1}')"
 
 echo "Android artifact package: ${artifact_root}"
 echo "Shared libraries: ${so_count}"
+echo "Static libraries: ${static_count}"
 echo "Header files: ${header_count}"
 echo "Size bytes: ${total_bytes}"
 if [[ "${copy_jni_libs}" == "ON" ]]; then

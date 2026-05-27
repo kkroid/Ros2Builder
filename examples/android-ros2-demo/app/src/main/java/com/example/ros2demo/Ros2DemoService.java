@@ -19,6 +19,8 @@ public class Ros2DemoService extends Service {
     public static final String EXTRA_NODE_NAME = "nodeName";
     public static final String EXTRA_RATE_HZ = "rateHz";
     public static final String EXTRA_QOS = "qos";
+    public static final String EXTRA_DISCOVERY_SERVER = "discoveryServer";
+    public static final String EXTRA_AUTO_START = "autoStart";
     public static final int DEFAULT_DOMAIN_ID = 0;
     public static final String DEFAULT_NODE_NAME = "android_phone_node";
     public static final String AUDIO_FILE_NAME = "ros2_audio.wav";
@@ -49,6 +51,7 @@ public class Ros2DemoService extends Service {
         String nodeName = intent == null ? DEFAULT_NODE_NAME : intent.getStringExtra(EXTRA_NODE_NAME);
         double rateHz = intent == null ? 1.0 : intent.getDoubleExtra(EXTRA_RATE_HZ, 1.0);
         String qos = intent == null ? "best_effort" : intent.getStringExtra(EXTRA_QOS);
+        String discoveryServer = intent == null ? "" : intent.getStringExtra(EXTRA_DISCOVERY_SERVER);
 
         if (nodeName == null || nodeName.trim().isEmpty()) {
             nodeName = DEFAULT_NODE_NAME;
@@ -56,9 +59,19 @@ public class Ros2DemoService extends Service {
         if (qos == null || qos.trim().isEmpty()) {
             qos = "best_effort";
         }
+        if (discoveryServer == null) {
+            discoveryServer = "";
+        }
 
         File audioFile = new File(getFilesDir(), AUDIO_FILE_NAME);
-        boolean started = NativeRosBridge.startSession(domainId, nodeName, rateHz, qos, audioFile.getAbsolutePath());
+        boolean started = NativeRosBridge.startSession(
+            domainId,
+            nodeName,
+            rateHz,
+            qos,
+            discoveryServer.trim(),
+            audioFile.getAbsolutePath()
+        );
         startForeground(
             NOTIFICATION_ID,
             buildNotification(started ? "ROS 2 runtime active" : "ROS 2 runtime failed")
