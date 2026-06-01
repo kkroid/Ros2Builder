@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "ros2builder-windows-deps",
+  "version-string": "0.1.0",
+  "builtin-baseline": "9b965a116838c6cdcd36bca60d1b81b030c8ab8d",
+  "dependencies": [
+    "asio",
+    "eigen3",
+    "foonathan-memory",
+    "openssl",
+    "tinyxml2"
+  ]
+}
