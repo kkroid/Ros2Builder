@@ -22,12 +22,8 @@ fi
 
 if [[ ! -f "${register_py_cmake}" ]]; then
   echo "Skipping rosidl_generator_py Android patch; file not found: ${register_py_cmake}"
-  exit 0
-fi
-
-if grep -q 'ROSIDL_GENERATOR_PY_DISABLE' "${register_py_cmake}"; then
+elif grep -q 'ROSIDL_GENERATOR_PY_DISABLE' "${register_py_cmake}"; then
   echo "rosidl_generator_py Android disable patch already applied"
-  exit 0
 fi
 
 echo "Applying rosidl_generator_py Android disable patch"
@@ -36,4 +32,73 @@ perl -0pi -e 's/  ament_register_extension\(\n    "rosidl_generate_idl_interface
 if ! grep -q 'ROSIDL_GENERATOR_PY_DISABLE' "${register_py_cmake}"; then
   echo "Failed to apply rosidl_generator_py Android disable patch" >&2
   exit 2
+fi
+
+# -------------------------------------------------------------------------
+# Patch 3: rmw_dds_common — force static when BUILD_SHARED_LIBS=OFF
+# -------------------------------------------------------------------------
+rmw_dds_common_cmake="${workspace}/src/ros2/rmw_dds_common/rmw_dds_common/CMakeLists.txt"
+
+if [[ ! -f "${rmw_dds_common_cmake}" ]]; then
+  echo "Skipping rmw_dds_common static patch; file not found: ${rmw_dds_common_cmake}"
+elif grep -q 'add_library(${PROJECT_NAME}_library' "${rmw_dds_common_cmake}" && \
+     ! grep -q 'add_library(${PROJECT_NAME}_library SHARED' "${rmw_dds_common_cmake}"; then
+  echo "rmw_dds_common static patch already applied"
+else
+  echo "Applying rmw_dds_common static patch (remove forced SHARED)"
+  perl -pi -e 's/add_library\(\$\{PROJECT_NAME\}_library SHARED/add_library(\$\{PROJECT_NAME\}_library/' "${rmw_dds_common_cmake}"
+  if grep -q 'add_library(${PROJECT_NAME}_library SHARED' "${rmw_dds_common_cmake}"; then
+    echo "Failed to apply rmw_dds_common static patch" >&2
+    exit 2
+  fi
+fi
+
+# -------------------------------------------------------------------------
+# Patch 4: rosidl_typesupport_fastrtps_cpp — force static when BUILD_SHARED_LIBS=OFF
+# -------------------------------------------------------------------------
+rosidl_ts_cmake="${workspace}/src/ros2/rosidl_typesupport_fastrtps/rosidl_typesupport_fastrtps_cpp/CMakeLists.txt"
+
+if [[ ! -f "${rosidl_ts_cmake}" ]]; then
+  echo "Skipping rosidl_typesupport_fastrtps_cpp static patch; file not found: ${rosidl_ts_cmake}"
+elif grep -q 'add_library(${PROJECT_NAME}' "${rosidl_ts_cmake}" && \
+     ! grep -q 'add_library(${PROJECT_NAME} SHARED' "${rosidl_ts_cmake}"; then
+  echo "rosidl_typesupport_fastrtps_cpp static patch already applied"
+else
+  echo "Applying rosidl_typesupport_fastrtps_cpp static patch (remove forced SHARED)"
+  perl -pi -e 's/add_library\(\$\{PROJECT_NAME\} SHARED/add_library(\$\{PROJECT_NAME\}/' "${rosidl_ts_cmake}"
+  if grep -q 'add_library(${PROJECT_NAME} SHARED' "${rosidl_ts_cmake}"; then
+    echo "Failed to apply rosidl_typesupport_fastrtps_cpp static patch" >&2
+    exit 2
+  fi
+fi
+
+# -------------------------------------------------------------------------
+# Patch 5: libyaml_vendor — force bundled libyaml static + export YAML_DECLARE_STATIC
+# libyaml_vendor hard-codes -DBUILD_SHARED_LIBS=ON for its bundled libyaml
+# ExternalProject, so it always emits a shared yaml even in an otherwise static
+# build. Force it static and export YAML_DECLARE_STATIC so consumers
+# (rcl_yaml_param_parser) compile yaml.h as plain declarations. On non-Windows
+# YAML_DECLARE_STATIC is a harmless no-op.
+# -------------------------------------------------------------------------
+libyaml_cmake="${workspace}/src/ros2/libyaml_vendor/CMakeLists.txt"
+
+if [[ ! -f "${libyaml_cmake}" ]]; then
+  echo "Skipping libyaml_vendor static patch; file not found: ${libyaml_cmake}"
+else
+  if grep -q 'BUILD_SHARED_LIBS=ON' "${libyaml_cmake}"; then
+    echo "Applying libyaml_vendor static patch (force bundled libyaml static)"
+    perl -pi -e 's/-DBUILD_SHARED_LIBS=ON/-DBUILD_SHARED_LIBS=OFF/' "${libyaml_cmake}"
+  else
+    echo "libyaml_vendor bundled libyaml already static"
+  fi
+  if ! grep -q 'ament_export_definitions(YAML_DECLARE_STATIC)' "${libyaml_cmake}"; then
+    echo "Applying libyaml_vendor YAML_DECLARE_STATIC export patch"
+    perl -0pi -e 's/ament_export_libraries\(yaml\)/ament_export_libraries(yaml)\nament_export_definitions(YAML_DECLARE_STATIC)/' "${libyaml_cmake}"
+  else
+    echo "libyaml_vendor YAML_DECLARE_STATIC export already applied"
+  fi
+  if grep -q 'BUILD_SHARED_LIBS=ON' "${libyaml_cmake}"; then
+    echo "Failed to apply libyaml_vendor static patch" >&2
+    exit 2
+  fi
 fi

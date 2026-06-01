@@ -35,7 +35,6 @@ rclcpp rmw_fastrtps_cpp std_msgs
 - [docs/ANDROID_TEST_APP_PRD.md](docs/ANDROID_TEST_APP_PRD.md): Android ROS 2 测试 App 的产品需求文档。
 - [docs/OPEN_SOURCE_CHECKLIST.md](docs/OPEN_SOURCE_CHECKLIST.md): 公开仓库前的检查清单。
 - [examples/android-ros2-demo](examples/android-ros2-demo): Android 29+ Java 17 示例 App，使用 C++ 承载 ROS 2 runtime。
-- [examples/pc-ros2-demo](examples/pc-ros2-demo): 官方 ROS 2 Humble 容器里的 PC 侧互测节点。
 - [examples/wsl-humble-audio-demo](examples/wsl-humble-audio-demo): WSL2 Ubuntu 22.04 + ROS 2 Humble 原生 PC 侧互测和录音发送 demo，不经过 Docker。
 
 ## 前置要求
@@ -70,16 +69,10 @@ ANDROID_NDK_HOME=/opt/android-ndk-cache/android-ndk-r25b-linux
 mkdir -p work ndk
 ```
 
-3. 一键执行完整流水线。默认启动 `all-in-one` 服务，顺序准备 NDK、下载源码、构建最小集合并聚合产物。
+3. 一键执行完整流水线。`android-build` 服务会顺序准备 NDK、下载源码、构建最小集合并聚合产物。
 
 ```bash
-docker compose up --build
-```
-
-如果镜像已经是最新的，也可以直接运行：
-
-```bash
-docker compose up
+docker compose run --rm --build android-build
 ```
 
 生成结果在：
@@ -94,14 +87,73 @@ work/install/android_arm64-v8a
 work/dist/android_arm64-v8a
 ```
 
-如果要分步调试，也可以单独运行：
+如果镜像已经是最新的，也可以省略 `--build`：
 
 ```bash
-docker compose build
-docker compose run --rm prepare-ndk
-docker compose run --rm fetch-sources
-docker compose run --rm builder bash -lc "/scripts/build_android.sh && /scripts/package_android_artifacts.sh"
+docker compose run --rm android-build
 ```
+
+## Windows 原生构建
+
+Windows 构建不走 Docker，也不在 compose 里保留占位服务。宿主机需要先准备 Visual Studio 2019 Build Tools、CMake、Ninja、Git、Python 3.8 或 3.10。推荐用 conda 提供独立的 Python 3.10 + Ninja 环境：
+
+```powershell
+conda create -y -n ros2builder-humble-win python=3.10 ninja pip
+```
+
+先检查环境：
+
+```powershell
+.\scripts\windows\ensure_windows_deps.ps1
+```
+
+如果 Python 或 Ninja 不在默认 `PATH`，可以显式指定：
+
+```powershell
+.\scripts\windows\ensure_windows_deps.ps1 `
+  -PythonExe $env:USERPROFILE\miniconda3\envs\ros2builder-humble-win\python.exe `
+  -NinjaExe $env:USERPROFILE\miniconda3\envs\ros2builder-humble-win\Library\bin\ninja.exe
+```
+
+准备 vcpkg 依赖，产物会整理到 `third_party/windows/`：
+
+```powershell
+.\scripts\windows\setup_vcpkg.ps1 `
+  -ExtraPath $env:USERPROFILE\miniconda3\envs\ros2builder-humble-win\Library\bin `
+  -GitProxy '' `
+  -DownloadProxy http://127.0.0.1:1082
+```
+
+`-GitProxy ''` 只对当前 PowerShell 进程生效，用来忽略可能失效的全局 GitHub 代理配置；如果你的 GitHub 必须走代理，改成实际地址，例如 `-GitProxy http://127.0.0.1:1082`。`-DownloadProxy` 用于 vcpkg 下载 CMake、源码包等 HTTP(S) 资源。
+
+构建 ROS 2 Humble Windows x64 Release 并打包：
+
+```powershell
+.\scripts\windows\build_windows.ps1 `
+  -PythonExe $env:USERPROFILE\miniconda3\envs\ros2builder-humble-win\python.exe `
+  -NinjaExe $env:USERPROFILE\miniconda3\envs\ros2builder-humble-win\Library\bin\ninja.exe `
+  -GitProxy '' `
+  -DownloadProxy http://127.0.0.1:1082
+```
+
+默认输出：
+
+```text
+work/dist/windows
+```
+
+`work/dist/windows` 只包含 `bin/*.dll`、`lib/*.lib` 和 `include/` 头文件；CMake package、setup 脚本、manifest、debug 目录和 vcpkg 元数据不会进入 dist。
+
+## Windows C++/ImGui Demo
+
+Windows demo 位于 [examples/windows-ros2-demo](examples/windows-ros2-demo)，构建时直接使用 Phase 2 的 `work/windows/install/windows_x64` 和 `third_party/windows`：
+
+```powershell
+.\examples\windows-ros2-demo\scripts\build_debug.ps1
+.\examples\windows-ros2-demo\build\windows_ros2_demo.exe --auto-start --domain-id 0
+```
+
+当前 demo 已支持 Android status 订阅、命令发布、WAV 文件发送到 Android、WASAPI 麦克风采集发送、接收 Android 发出的 `/wsl/audio_*` 流并保存为 WAV；live playback 和跨端实测仍在 Phase 3 checklist 中继续跟进。
 
 ## 网络和代理
 
@@ -109,12 +161,6 @@ docker compose run --rm builder bash -lc "/scripts/build_android.sh && /scripts/
 
 ```dotenv
 BASE_IMAGE=docker.m.daocloud.io/library/ubuntu:22.04
-```
-
-如果失败的是 PC demo 使用的 `osrf/ros:humble-desktop`，设置：
-
-```dotenv
-ROS2_DEMO_IMAGE=docker.m.daocloud.io/osrf/ros:humble-desktop
 ```
 
 如果你本地有代理，先在 `.env` 里设置代理。默认 [docker-compose.yml](docker-compose.yml) 不注入 Docker 专用的 `host-gateway`，这样同一份 compose 可以同时用于 Docker Desktop 和 Podman。代理地址按运行时选择。
@@ -141,7 +187,7 @@ NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal,host.containers.internal
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.host-gateway.yml build
-docker compose -f docker-compose.yml -f docker-compose.host-gateway.yml run --rm fetch-sources
+docker compose -f docker-compose.yml -f docker-compose.host-gateway.yml run --rm android-build
 ```
 
 这个 override 只用于 Docker Engine；Podman 下不要叠加它。
@@ -151,7 +197,7 @@ docker compose -f docker-compose.yml -f docker-compose.host-gateway.yml run --rm
 如果容器里连不上本地代理，检查你的代理软件是否允许来自 Docker 网络的连接。有些 Windows 代理客户端需要开启 `Allow LAN`，或把监听地址从 `127.0.0.1` 改成 `0.0.0.0`。可以先测试：
 
 ```bash
-docker compose run --rm builder bash -lc "curl -I https://github.com && git ls-remote https://github.com/ros2/rclcpp.git HEAD"
+docker compose run --rm android-build bash -lc "curl -I https://github.com && git ls-remote https://github.com/ros2/rclcpp.git HEAD"
 ```
 
 ## 源码清单
@@ -162,7 +208,7 @@ docker compose run --rm builder bash -lc "curl -I https://github.com && git ls-r
 - 不允许重复路径。
 - 不允许同一个 Git URL 重复出现，尤其是不同版本重复。
 - 如果 `work/src` 里已经有同名目录，必须是 Git checkout，且 remote 必须和 manifest 一致。
-- `fetch-sources` 会对当前 manifest 顺序执行 `vcs import --recursive --skip-existing --workers 1`；已存在的仓库不会重复 clone。
+- `android-build` 会在构建前对当前 manifest 顺序执行 `vcs import --recursive --skip-existing --workers 1`；已存在的仓库不会重复 clone。
 - 拉取完成后会生成 `work/source-inventory.tsv`，记录路径、URL、manifest version 和当前 commit。
 
 默认最小清单当前包含 31 个仓库；对应默认构建产物里有 94 个 `.so`：93 个来自 `work/install/android_arm64-v8a/lib`，另 1 个是打包到 `work/dist/android_arm64-v8a/lib` 的 `libc++_shared.so`。
@@ -170,19 +216,19 @@ docker compose run --rm builder bash -lc "curl -I https://github.com && git ls-r
 如果只想检查清单和已有源码，不下载新仓库：
 
 ```bash
-docker compose run --rm builder python3 /scripts/validate_sources.py --manifest /manifests/ros2-humble-android.repos --src /work/src --check-existing
+docker compose run --rm android-build python3 /scripts/validate_sources.py --manifest /manifests/ros2-humble-android.repos --src /work/src --check-existing
 ```
 
 也可以显式指定另一个 manifest：
 
 ```bash
-docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android.repos fetch-sources
+docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android.repos android-build
 ```
 
 如果要下载扩展包实验清单：
 
 ```bash
-docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android-full.repos fetch-sources
+docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android-full.repos android-build
 ```
 
 默认 `BUILD_PACKAGES` 是：
@@ -193,7 +239,7 @@ rclcpp rmw_fastrtps_cpp std_msgs
 
 ## 产物打包
 
-这个步骤不会重新编译，只会从 `work/install/android_arm64-v8a` 整理输出到：
+这个步骤由 `android-build` 在构建完成后自动执行，从 `work/install/android_arm64-v8a` 整理输出到：
 
 ```text
 work/dist/android_arm64-v8a
@@ -213,25 +259,25 @@ manifest/artifact-manifest.tsv
 默认不会复制 `share`、`cmake` 和 `pkgconfig` 这类元数据，因为这些目录小文件很多，在 Windows bind mount 上会明显拖慢，而 Android 工程通常只需要头文件和 `.so`。如果你要保留这些调试/CMake 元数据：
 
 ```bash
-docker compose run --rm -e ARTIFACT_WITH_METADATA=ON package-artifacts
+docker compose run --rm -e ARTIFACT_WITH_METADATA=ON android-build
 ```
 
 默认清单只记录文件大小和路径，适合 Windows 挂载目录下快速整理。如果需要为所有文件计算 sha256：
 
 ```bash
-docker compose run --rm -e ARTIFACT_CHECKSUMS=ON package-artifacts
+docker compose run --rm -e ARTIFACT_CHECKSUMS=ON android-build
 ```
 
 如果只想生成 `include`、`lib`，不复制一份 `jniLibs`，可以这样运行：
 
 ```bash
-docker compose run --rm -e ARTIFACT_WITH_JNILIBS=OFF package-artifacts
+docker compose run --rm -e ARTIFACT_WITH_JNILIBS=OFF android-build
 ```
 
 如果要改输出目录，传容器内路径即可，建议仍放在 `/work` 下以便宿主机可见：
 
 ```bash
-docker compose run --rm -e ARTIFACT_DIR=/work/dist/my_android_package package-artifacts
+docker compose run --rm -e ARTIFACT_DIR=/work/dist/my_android_package android-build
 ```
 
 ## 常用配置
@@ -262,16 +308,7 @@ docker compose run --rm \
 	-e CMAKE_POSITION_INDEPENDENT_CODE=ON \
 	-e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c \
 	-e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp \
-	builder bash /scripts/build_android.sh
-
-docker compose run --rm \
-	-e BUILD_OUTPUT_SUFFIX=static_dynamic \
-	-e BUILD_SHARED_LIBS=OFF \
-	-e RMW_IMPLEMENTATION=rmw_fastrtps_dynamic_cpp \
-	-e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON \
-	-e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c \
-	-e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp \
-	package-artifacts
+	android-build
 ```
 
 静态链接时 ROSIDL 只能选择一个 concrete typesupport；这里固定为 introspection C/C++ typesupport，也是上游 `get_used_typesupports.cmake` 支持的标准入口。`rmw_fastrtps_cpp` + FastRTPS typesupport 的静态产物可以构建，但在 Android JNI bridge 中启动节点时会卡在 FastDDS type object 注册；`rmw_fastrtps_dynamic_cpp` 正好是官方的 introspection 路径。
@@ -285,25 +322,25 @@ docker compose run --rm \
 默认源码清单只覆盖最小通信链路。构建下面这些扩展包前，先拉取完整实验清单：
 
 ```bash
-docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android-full.repos fetch-sources
+docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android-full.repos android-build
 ```
 
 构建更多标准消息：
 
 ```bash
-docker compose run --rm -e BUILD_PACKAGES="rclcpp rmw_fastrtps_cpp std_msgs sensor_msgs geometry_msgs nav_msgs" builder bash /scripts/build_android.sh
+docker compose run --rm -e BUILD_PACKAGES="rclcpp rmw_fastrtps_cpp std_msgs sensor_msgs geometry_msgs nav_msgs" android-build
 ```
 
 尝试 TF2 或图像传输：
 
 ```bash
-docker compose run --rm -e BUILD_PACKAGES="tf2_ros image_transport" builder bash /scripts/build_android.sh
+docker compose run --rm -e BUILD_PACKAGES="tf2_ros image_transport" android-build
 ```
 
 `rosbag2` 建议最后单独验证：
 
 ```bash
-docker compose run --rm -e BUILD_PACKAGES="rosbag2_cpp rosbag2_storage" builder bash /scripts/build_android.sh
+docker compose run --rm -e BUILD_PACKAGES="rosbag2_cpp rosbag2_storage" android-build
 ```
 
 ## 清理本地状态
@@ -314,7 +351,7 @@ docker compose run --rm -e BUILD_PACKAGES="rosbag2_cpp rosbag2_storage" builder 
 rm -rf work/build work/install work/log work/dist
 ```
 
-如果要重新下载 ROS 2 源码，删除 `work/src` 后重新运行 `fetch-sources`。如果要重新准备 NDK，删除 `ndk/` 后重新运行 `prepare-ndk`。
+如果要重新下载 ROS 2 源码，删除 `work/src` 后重新运行 `android-build`。如果要重新准备 NDK，删除 `ndk/` 后重新运行 `android-build`。
 
 ## Android 侧注意事项
 
@@ -327,17 +364,16 @@ rm -rf work/build work/install work/log work/dist
 
 ## 示例互测
 
-本仓库现在包含三个互补 demo：
+本仓库现在包含两个互补 demo：
 
 - [examples/android-ros2-demo](examples/android-ros2-demo): Android 真机 App，使用本仓库交叉编译出的 ROS 2 Android `.so`，ROS 2 runtime 和业务逻辑在 C++ 层，Java 17 Android 层只做 UI、权限和 Foreground Service 外壳。
-- [examples/pc-ros2-demo](examples/pc-ros2-demo): PC 侧官方 ROS 2 Humble peer，运行在 `osrf/ros:humble-desktop` 容器里，用标准 ROS 2 环境和 Android 节点互通。
 - [examples/wsl-humble-audio-demo](examples/wsl-humble-audio-demo): PC 侧 WSL2 Ubuntu 22.04 + ROS 2 Humble 原生 demo，用 WSLg PulseAudio 录音并通过 ROS 2 发给 Android。
 
-这两个 demo 的目标不是完整机器人应用，而是验证“本项目产出的 Android ROS 2 库能否和官方 Humble 正常发现、发布、订阅”。
+这些 demo 的目标不是完整机器人应用，而是验证“本项目产出的 Android ROS 2 库能否和官方 Humble 正常发现、发布、订阅”。
 
 ### Android demo
 
-Android demo 依赖前面 `package-artifacts` 生成的产物：
+Android demo 依赖前面 `android-build` 生成的产物：
 
 ```text
 work/dist/android_arm64-v8a
@@ -420,120 +456,9 @@ wsl -d Ubuntu-22.04-Humble -- bash -lc "cd /mnt/d/Ros2Builder/examples/wsl-humbl
 
 成功后，Android 端会在传输过程中直接播放音频；传输结束后，界面上的 `Received audio file` 应显示大于 0 的字节数，点击 `Play Received Audio` 可以回放最近一次保存的音频。更完整的说明见 [examples/wsl-humble-audio-demo/README.md](examples/wsl-humble-audio-demo/README.md)。
 
-### Docker PC peer demo
-
-Docker PC peer 仍保留用于对比和构建环境验证；但在 Windows Docker Desktop 下，它不再是推荐的 Android 局域网 ROS 2 运行路径。实测 Docker Desktop 的 `network_mode=host` 仍处在 Docker Desktop VM 网络中，DDS 发现和 locator 可能暴露 `192.168.65.x` 这类手机不可达地址。需要真机互通时优先使用上面的 WSL Humble 原生 demo。
-
-PC 侧可以用官方 ROS 2 Humble 容器运行 peer 节点：
-
-```bash
-docker compose run --rm ros2-demo-peer
-```
-
-默认 peer 行为：
-
-- 使用 `ROS_DOMAIN_ID=0`，和 Android demo 的默认输入一致。
-- 使用 `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`。
-- 使用 `best_effort` QoS，和 Android demo 默认发布/订阅 QoS 一致。
-- 订阅 `/android/status`。
-- 每 5 秒向 `/android/command` 发布一次 `ping`。
-- 每 2 秒输出收到的 Android status 数量、平均接收频率和最近一条 status。
-
-peer 运行后，预期日志会逐步出现类似信息：
-
-```text
-PC ROS 2 peer started. Subscribing /android/status, publishing /android/command
-published command #1: ping
-status_count=3 avg_rate=0.95Hz last_status=0.4s ago
-last Android status: {"seq":3,"device":"android","state":"running","lastCommand":"ping"}
-```
-
-如果想让 peer 循环发送多个命令，可以这样运行：
-
-```bash
-docker compose run --rm -e ROS2_PEER_COMMANDS="ping,set_rate:5,reset_metrics" -e ROS2_PEER_COMMAND_PERIOD=5 ros2-demo-peer
-```
-
-如果要换 domain id，两边用同一个值即可。例如 Android App 输入 `7`，PC peer 这样启动：
-
-```bash
-docker compose run --rm -e ROS_DOMAIN_ID=7 ros2-demo-peer
-```
-
-如果想手动检查 ROS graph，可以打开官方 ROS 2 shell：
-
-```bash
-docker compose run --rm ros2-demo-shell
-```
-
-然后运行：
-
-```bash
-ros2 node list
-ros2 topic echo /android/status
-ros2 topic pub --once /android/command std_msgs/msg/String "{data: 'ping'}"
-```
-
-手动命令的预期表现：
-
-- `ros2 node list` 能看到完整节点名 `/android_phone_node`。
-- `ros2 topic echo /android/status` 能持续看到 JSON 字符串状态。
-- 发布 `{data: 'ping'}` 后，Android App 的 `lastCommand` 更新为 `ping`。
-- 发布 `{data: 'set_rate:5'}` 后，Android App 的 `publishRateHz` 更新为 `5.0`，PC 侧收到 status 的频率随之升高。
-- 发布 `{data: 'reset_metrics'}` 后，Android App 的计数器重置。
-
-### 音频流式保存测试
-
-Android App 保持 `running` 后，可以让 PC 侧录音并把 WAV 字节流通过 ROS 2 发给手机：
-
-```bash
-source /opt/ros/humble/setup.bash
-export ROS_DOMAIN_ID=0
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-cd /mnt/d/Ros2Builder/examples/pc-ros2-demo
-python3 record_and_send_audio.py --duration 3
-```
-
-如果当前 ROS 2 Python 环境没有录音依赖，可以先发送已有 WAV 文件验证链路：
-
-```bash
-python3 record_and_send_audio.py --input-wav /path/to/input.wav
-```
-
-录音模式依赖 Python `sounddevice` 包以及系统可用的麦克风输入；缺少依赖时脚本会提示安装，或者改用 `--input-wav`。音频传输使用两个 topic：
-
-- `/android/audio_control`: `std_msgs/msg/String`，发送 `begin` 和 `end`。
-- `/android/audio_chunk`: `std_msgs/msg/UInt8MultiArray`，发送 WAV 文件字节块。
-
-手机端预期表现：
-
-- `audioState` 从 `receiving` 变为 `ready`。
-- `audioFileBytes` 和界面上的 `Received audio file` 大于 0。
-- `audioChunkCount` 大于 0。
-- 点击 `Play Received Audio` 能播放最近一次收到的音频；再次发送会覆盖同一个文件。
-
-如果要求“录音也必须发生在 Docker 容器内部”，需要先确认容器能访问主机音频输入。Windows Docker Desktop 的 Linux 容器默认通常没有 `/dev/snd`，也不能直接访问麦克风。可以运行：
-
-```powershell
-.\scripts\check_docker_audio.ps1
-```
-
-当前验证路径是：默认 `osrf/ros:humble-desktop` 容器没有 `/dev/snd`，也没有 `arecord`、`parec`、`sounddevice` 等录音能力。WSL 中存在 `/mnt/wslg/PulseServer` 时，可以启用 Docker Desktop 对该 WSL 发行版的 integration，再把 WSLg 目录挂进容器。Windows Docker Desktop 下要使用 UNC 反斜杠路径，例如 `\\wsl.localhost\Ubuntu-24.04\mnt\wslg`；如果你的发行版名称不同，运行前设置 `WSLG_DIR`。
-
-Docker 内部录音并发送到 Android：
-
-```powershell
-$env:WSLG_DIR='\\wsl.localhost\Ubuntu-24.04\mnt\wslg'
-docker compose build ros2-demo-audio
-docker compose run --rm -e AUDIO_DURATION=5 ros2-demo-audio
-Remove-Item Env:\WSLG_DIR
-```
-
-已验证：使用上述 WSLg PulseAudio 挂载时，容器内 `parec` 可以从 `RDPSource` 录到音频，`ros2-demo-audio` 会在容器内部生成 WAV 并发布 `/android/audio_control` 与 `/android/audio_chunk`。如果 Android 文件大小没有变化，问题通常不在录音，而在 Docker Desktop 容器到手机之间的 ROS 2/DDS 发现或 UDP 通信。
-
 ### 网络注意事项
 
-原生 Linux Docker 使用 `network_mode=host` 通常最接近真实 PC ROS 2 环境。Docker Desktop for Windows 的多播和 host 网络行为可能不同；如果容器里发现不了 Android 节点，`ros2-demo-peer` 会持续显示 `status_count=0`。这种情况下先在 WSL 或另一台 Linux 主机上跑同样的官方 ROS 2 命令交叉验证，再继续排查 Docker Desktop 网络。
+Docker 现在只负责拉源码和编译 Android 产物，不再提供 PC 侧 ROS 2 运行 demo。Android 真机互测优先使用 WSL Humble 原生 demo。
 
 如果 PC 侧看不到 Android 节点，优先检查：
 
@@ -542,7 +467,7 @@ Remove-Item Env:\WSLG_DIR
 - Android 是否授予网络相关权限。
 - Android App 是否已经点击 `Start`，且状态为 `running`。
 - 手机 Wi-Fi 是否允许组播；Android App 是否持有 `MulticastLock`。
-- 防火墙、VPN、热点隔离或 Docker Desktop 网络是否阻断 UDP 多播。
+- 防火墙、VPN、热点隔离或 WSL 网络是否阻断 UDP 多播。
 - APK 是否确实打包了 `libc++_shared.so`、`librmw_dds_common.so`、`librosidl_typesupport_fastrtps_cpp.so`、`libyaml.so` 以及业务桥 `libros2_android_demo.so`（ROS 2 静态归档已链接进去）。
 
 Windows + WSL 镜像网络下，如果 WSL 和 Windows 都显示同一个 Wi-Fi IP，但 Android 仍发现不了 PC peer，先确认手机能否访问 PC。常见现象是 Windows/WSL 可以 ping 手机，但手机 ping 不回 PC，这通常是 Windows 当前 Wi-Fi 被标为 Public 网络并阻止入站流量。可以用管理员 PowerShell 运行：
@@ -551,13 +476,7 @@ Windows + WSL 镜像网络下，如果 WSL 和 Windows 都显示同一个 Wi-Fi 
 .\scripts\enable_windows_ros2_lan.ps1 -InterfaceAlias WLAN -RemoteSubnet 192.168.1.0/24
 ```
 
-该脚本会把指定网卡设为 Private，并允许同网段访问 ROS 2 domain 0 常用 DDS UDP 端口 `7400-7600` 和 ICMPv4 echo。运行后再测试 Android 到 PC 的 ping，以及 WSL/PC peer 是否能收到 `/android/status`。
-
-如果只想快速确认 PC peer 容器能启动，可以设置自动退出时间：
-
-```bash
-docker compose run --rm -e ROS2_PEER_EXIT_AFTER=8 ros2-demo-peer
-```
+该脚本会把指定网卡设为 Private，并允许同网段访问 ROS 2 domain 0 常用 DDS UDP 端口 `7400-7600` 和 ICMPv4 echo。运行后再测试 Android 到 PC 的 ping，以及 WSL demo 是否能收到 `/android/status`。
 
 ## 现实边界
 

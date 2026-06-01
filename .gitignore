@@ -1,10 +1,21 @@
 /.env
 /.env.*
 !/.env.example
+/.venv/
 
 # Local build, source checkout, package output and NDK cache.
 /work/
 /ndk/
+/third_party/vcpkg/
+/third_party/vcpkg_installed/
+/third_party/windows/
+/work/dist/windows/
+
+# Local Windows/CMake project state.
+*.vcxproj.user
+/out/
+/examples/windows-ros2-demo/build/
+CMakeUserPresets.json
 
 # Editor and OS noise.
 /.vscode/

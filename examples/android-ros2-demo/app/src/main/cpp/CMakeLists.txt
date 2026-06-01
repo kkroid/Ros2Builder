@@ -46,9 +46,11 @@ target_include_directories(ros2_android_demo PRIVATE
 )
 
 target_link_libraries(ros2_android_demo PRIVATE
+  -Wl,--whole-archive
   -Wl,--start-group
   ${ROS2_STATIC_LIBS}
   -Wl,--end-group
+  -Wl,--no-whole-archive
   ${ROS2_IMPORTED_TARGETS}
   log
   android

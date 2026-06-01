@@ -208,6 +208,25 @@ def write_inventory(path, src_dir, repositories):
             )
 
 
+def write_missing_manifest(path, src_dir, repositories):
+    missing_repositories = {
+        repo_path: repo_info
+        for repo_path, repo_info in repositories.items()
+        if not (src_dir / repo_path).exists()
+    }
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as manifest_file:
+        yaml.safe_dump(
+            {"repositories": missing_repositories},
+            manifest_file,
+            sort_keys=False,
+        )
+    print(
+        f"Wrote missing source manifest: {path} "
+        f"({len(missing_repositories)} repositories)"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Validate ROS 2 source manifest and external checkouts"
@@ -230,6 +249,10 @@ def main():
     parser.add_argument(
         "--write-inventory",
         help="Write a TSV inventory of repositories and checked out commits",
+    )
+    parser.add_argument(
+        "--write-missing-manifest",
+        help="Write a .repos manifest containing only missing checkouts",
     )
     args = parser.parse_args()
 
@@ -262,6 +285,13 @@ def main():
     if args.write_inventory:
         write_inventory(args.write_inventory, src_dir, repositories)
         print(f"Wrote source inventory: {args.write_inventory}")
+
+    if args.write_missing_manifest:
+        write_missing_manifest(
+            args.write_missing_manifest,
+            src_dir,
+            repositories,
+        )
 
     print(f"Manifest OK: {len(repositories)} repositories")
     return 0

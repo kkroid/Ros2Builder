@@ -1,21 +1,6 @@
 services:
-  builder:
+  android-build:
     build:
       extra_hosts: &host_gateway
         - host.docker.internal:host-gateway
-    extra_hosts: *host_gateway
-
-  prepare-ndk:
-    build:
-      extra_hosts: *host_gateway
-    extra_hosts: *host_gateway
-
-  fetch-sources:
-    build:
-      extra_hosts: *host_gateway
-    extra_hosts: *host_gateway
-
-  package-artifacts:
-    build:
-      extra_hosts: *host_gateway
     extra_hosts: *host_gateway

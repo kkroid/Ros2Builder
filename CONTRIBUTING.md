@@ -17,10 +17,7 @@ Good contributions include:
 
 1. Copy `.env.example` to `.env` and keep local paths, proxies and caches out of Git.
 2. Run `docker compose build` after Dockerfile changes.
-3. Run `docker compose run --rm prepare-ndk` when changing NDK-related settings.
-4. Run `docker compose run --rm fetch-sources` after manifest changes.
-5. Run `docker compose run --rm builder bash /scripts/build_android.sh` for build changes.
-6. Run `docker compose run --rm package-artifacts` for packaging changes.
+3. Run `docker compose run --rm android-build` after NDK, manifest, Android build, or packaging changes.
 
 For faster review, include the exact `BUILD_PACKAGES`, `ANDROID_ABI`, `ANDROID_API`, host OS, Docker version and the failing command when reporting a problem.
 

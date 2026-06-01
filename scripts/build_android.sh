@@ -42,7 +42,7 @@ fi
 
 if [[ ! -x "${linux_clang}" ]]; then
   echo "Linux Android NDK clang was not found: ${linux_clang}" >&2
-  echo "Run: docker compose run --rm prepare-ndk" >&2
+  echo "Run: docker compose run --rm android-build" >&2
   exit 2
 fi
 
@@ -106,6 +106,7 @@ colcon --log-base "${log_base}" build \
   --merge-install \
   --build-base "${build_base}" \
   --install-base "${install_base}" \
+  --base-paths src \
   --parallel-workers "${parallel_workers}" \
   --packages-up-to "${build_package_args[@]}" \
   --cmake-force-configure \

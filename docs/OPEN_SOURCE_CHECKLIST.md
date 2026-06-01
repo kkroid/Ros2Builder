@@ -17,16 +17,13 @@ Use this checklist before making the repository public.
 git status --short
 git ls-files
 docker compose build
-docker compose run --rm prepare-ndk
-docker compose run --rm fetch-sources
-docker compose run --rm builder bash /scripts/build_android.sh
-docker compose run --rm package-artifacts
+docker compose run --rm android-build
 ```
 
 If a full rebuild is too expensive before every release, at least run manifest validation:
 
 ```bash
-docker compose run --rm builder python3 /scripts/validate_sources.py --manifest /manifests/ros2-humble-android.repos --src /work/src --check-existing
+docker compose run --rm android-build python3 /scripts/validate_sources.py --manifest /manifests/ros2-humble-android.repos --src /work/src --check-existing
 ```
 
 ## Current project status

@@ -47,7 +47,7 @@ existing_manifest_roots() {
 
 if [[ ! -d "${install_prefix}" ]]; then
   echo "Missing Android install tree: ${install_prefix}" >&2
-  echo "Run: docker compose run --rm builder bash /scripts/build_android.sh" >&2
+  echo "Run: docker compose run --rm android-build" >&2
   exit 2
 fi
 
