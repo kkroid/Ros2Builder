@@ -1,0 +1,29 @@
+# Dialog 服务 - 对话业务控制
+# Topic: /aisrobot/dialog
+#
+# 对齐一期 duiplus_dds.c 控制台命令:
+#   - start_dialog       -> START_DIALOG
+#   - stop_dialog        -> STOP_DIALOG
+#   - send_text <round_type> <text> -> INPUT_TEXT
+#
+# SDK 映射:
+#   START_DIALOG -> duiPlusStartDialog
+#   STOP_DIALOG  -> duiPlusStopDialog
+#   INPUT_TEXT   -> duiPlusInputText (带 nluParams.language)
+#
+# 异步结果: ASR/DM 事件通过既有 topic 发布
+#   - /aisrobot/audio/asr_result (AsrResult)
+#   - /aisrobot/dialog/dm_output (DmOutput)
+uint8 START_DIALOG=0        # 主动起一轮对话（跳过唤醒，直接进入倾听）
+uint8 STOP_DIALOG=1         # 主动停止当前对话
+uint8 INPUT_TEXT=2          # 直接注入文本文本触发 NLU/DM（跳过 ASR）
+
+uint8  cmd          # 命令类型
+# —— INPUT_TEXT 使用 ——
+string text         # 注入的文本内容，必填
+string round_type   # "single"：单轮；"multiple"：多轮（默认 single）
+string language     # 空串 = 跟随 Session 当前语言；"Chinese" / "English" 强制指定
+---
+bool   success      # true=成功受理；false=参数/状态错误
+int32  code         # 0=成功；-1=未知命令；-50=text 为空；-51=SDK 调用失败；-52=duiPlus 未启用
+string message      # 成功描述或错误信息

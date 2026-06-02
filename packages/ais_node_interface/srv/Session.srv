@@ -1,0 +1,20 @@
+# Session 服务 - AI 运行域总控
+# Topic: /aisrobot/session
+#
+# 职责：AI 能力总开关 + 全局运行期状态切换（语种 / 未来 VoIP 模式等）。
+# 注意：会话轮次级别的起停请使用 Dialog.srv（START_DIALOG / STOP_DIALOG），
+#      主动播报请使用 Tts.srv（START / STOP）。
+#
+# 【v2.4.0 Breaking】移除 OPEN_SESSION=2 / CLOSE_SESSION=3（原占位未接 SDK），
+#   原语义迁移到 Dialog.srv 的 START_DIALOG / STOP_DIALOG；cmd=2 重新分配给 SET_LANGUAGE。
+uint8 OPEN_AI=0             # 打开 AI 能力（唤醒 + ASR + DM + TTS）
+uint8 CLOSE_AI=1            # 关闭 AI 能力（对应 disable_sspe / disable_wakeup 组合）
+uint8 SET_LANGUAGE=2        # 运行期切换语种：影响 ASR / TTS / NLU / 唤醒资源
+
+uint8  cmd          # 命令类型
+# —— SET_LANGUAGE 使用 ——
+string lang         # 取值："Chinese" / "English"（大小写敏感，对齐一期 set_language）
+---
+bool   success      # true=成功；false=失败
+int32  code         # 0=成功；-1=未知命令；-40=lang 非法；-41=SDK 切换失败
+string message      # 成功描述或错误信息

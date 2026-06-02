@@ -5,10 +5,10 @@
 当前默认目标是 Android `arm64-v8a` / API 29，默认构建包集合是：
 
 ```text
-rclcpp rmw_fastrtps_cpp std_msgs
+rclcpp rmw_fastrtps_cpp std_msgs ais_node_interface
 ```
 
-默认源码清单只包含这组包的最小依赖闭包：31 个仓库。当前最小构建的打包输出包含 94 个 `.so`，其中 93 个来自 ROS 2 install tree，另 1 个是 Android 运行时需要的 `libc++_shared.so`。
+默认源码清单只包含 ROS 2/Fast DDS 的最小依赖闭包；本地消息包从 `packages/` 注入。`harix_ros2_bridge` 当前使用静态封装路线，完整复现步骤见 [docs/ROS2_BUILD_RUNBOOK.md](docs/ROS2_BUILD_RUNBOOK.md)。
 
 ## 当前状态
 
@@ -33,6 +33,7 @@ rclcpp rmw_fastrtps_cpp std_msgs
 - [DEPENDENCIES.md](DEPENDENCIES.md): 对你原始依赖清单的校准和仓库映射。
 - [CONTRIBUTING.md](CONTRIBUTING.md): 贡献约定和仓库卫生说明。
 - [docs/ANDROID_TEST_APP_PRD.md](docs/ANDROID_TEST_APP_PRD.md): Android ROS 2 测试 App 的产品需求文档。
+- [docs/ROS2_BUILD_RUNBOOK.md](docs/ROS2_BUILD_RUNBOOK.md): 当前 harix bridge 使用的 Windows/Android 静态 ROS 2 构建步骤。
 - [docs/OPEN_SOURCE_CHECKLIST.md](docs/OPEN_SOURCE_CHECKLIST.md): 公开仓库前的检查清单。
 - [examples/android-ros2-demo](examples/android-ros2-demo): Android 29+ Java 17 示例 App，使用 C++ 承载 ROS 2 runtime。
 - [examples/wsl-humble-audio-demo](examples/wsl-humble-audio-demo): WSL2 Ubuntu 22.04 + ROS 2 Humble 原生 PC 侧互测和录音发送 demo，不经过 Docker。
@@ -211,7 +212,7 @@ docker compose run --rm android-build bash -lc "curl -I https://github.com && gi
 - `android-build` 会在构建前对当前 manifest 顺序执行 `vcs import --recursive --skip-existing --workers 1`；已存在的仓库不会重复 clone。
 - 拉取完成后会生成 `work/source-inventory.tsv`，记录路径、URL、manifest version 和当前 commit。
 
-默认最小清单当前包含 31 个仓库；对应默认构建产物里有 94 个 `.so`：93 个来自 `work/install/android_arm64-v8a/lib`，另 1 个是打包到 `work/dist/android_arm64-v8a/lib` 的 `libc++_shared.so`。
+默认最小清单当前包含 ROS 2/Fast DDS 的源码仓库；`ais_node_interface` 这类本地接口包从 `packages/` 注入到 colcon workspace。当前 bridge 封版静态构建的验收标准见 [docs/ROS2_BUILD_RUNBOOK.md](docs/ROS2_BUILD_RUNBOOK.md)。
 
 如果只想检查清单和已有源码，不下载新仓库：
 
@@ -234,7 +235,7 @@ docker compose run --rm -e SOURCE_MANIFEST=/manifests/ros2-humble-android-full.r
 默认 `BUILD_PACKAGES` 是：
 
 ```text
-rclcpp rmw_fastrtps_cpp std_msgs
+rclcpp rmw_fastrtps_cpp std_msgs ais_node_interface
 ```
 
 ## 产物打包
@@ -249,7 +250,7 @@ work/dist/android_arm64-v8a
 
 ```text
 include/                  # 所有 ROS 2 和生成消息头文件
-lib/                      # 所有 Android .so，包括 libc++_shared.so
+lib/                      # Android .a/.so；静态封版只允许 3 个非 ROS .so
 jniLibs/arm64-v8a/        # Android Studio/Gradle 可直接打包的 .so
 manifest/build-info.txt
 manifest/source-inventory.tsv
@@ -288,34 +289,17 @@ docker compose run --rm -e ARTIFACT_DIR=/work/dist/my_android_package android-bu
 | `ANDROID_API` | `29` | Android platform API level。 |
 | `ANDROID_STL` | `c++_shared` | Android C++ runtime。多 `.so` 默认用 shared；封装成单个 bridge `.so` 时才考虑实验 `c++_static`。 |
 | `BUILD_SHARED_LIBS` | `ON` | ROS 2/CMake 标准开关。默认生成共享库；静态库实验可设为 `OFF`。 |
-| `BUILD_OUTPUT_SUFFIX` | 空 | 可选输出后缀。例如设为 `static_dynamic` 时使用 `work/build/android_arm64-v8a_static_dynamic`、`work/install/android_arm64-v8a_static_dynamic`、`work/dist/android_arm64-v8a_static_dynamic`。 |
-| `BUILD_PACKAGES` | `rclcpp rmw_fastrtps_cpp std_msgs` | 传给 `colcon --packages-up-to` 的包列表。 |
+| `BUILD_OUTPUT_SUFFIX` | 空 | 可选输出后缀。例如设为 `debug` 时使用 `work/build/android_arm64-v8a_debug`、`work/install/android_arm64-v8a_debug`、`work/dist/android_arm64-v8a_debug`。 |
+| `BUILD_PACKAGES` | `rclcpp rmw_fastrtps_cpp std_msgs ais_node_interface` | 传给 `colcon --packages-up-to` 的包列表。 |
 | `PARALLEL_WORKERS` | `nproc` | colcon 并行 worker 数。 |
 | `NDK_VERSION` | `r25b` | 下载和缓存的 Android NDK 版本。 |
 | `ROS2_ANDROID_WORKDIR` | `./work` | 宿主机上的源码、构建、安装和日志目录。 |
 
-## 静态库实验
+## Harix bridge 静态构建
 
-静态库实验只使用 ROS 2/ament/CMake 已有机制，不修改上游源码。Android demo 当前验证通过的组合是 `rmw_fastrtps_dynamic_cpp` + introspection typesupport：关闭 `BUILD_SHARED_LIBS`，固定 RMW，并禁用 RMW 运行时动态选择。输出放到独立后缀目录，避免覆盖默认共享库构建。
+当前产品路线是把 ROS 2、`std_msgs` 与 `ais_node_interface/msg/AudioCapture` 静态封进 `harix_ros2_bridge.dll/.so`，宿主侧只加载 bridge 的纯 C ABI。请按 [docs/ROS2_BUILD_RUNBOOK.md](docs/ROS2_BUILD_RUNBOOK.md) 执行，不再使用旧的 `static_dynamic` 实验命令。
 
-```bash
-docker compose run --rm \
-	-e BUILD_OUTPUT_SUFFIX=static_dynamic \
-	-e BUILD_SHARED_LIBS=OFF \
-	-e BUILD_PACKAGES="rclcpp rmw_fastrtps_dynamic_cpp std_msgs" \
-	-e RMW_IMPLEMENTATION=rmw_fastrtps_dynamic_cpp \
-	-e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON \
-	-e CMAKE_POSITION_INDEPENDENT_CODE=ON \
-	-e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c \
-	-e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp \
-	android-build
-```
-
-静态链接时 ROSIDL 只能选择一个 concrete typesupport；这里固定为 introspection C/C++ typesupport，也是上游 `get_used_typesupports.cmake` 支持的标准入口。`rmw_fastrtps_cpp` + FastRTPS typesupport 的静态产物可以构建，但在 Android JNI bridge 中启动节点时会卡在 FastDDS type object 注册；`rmw_fastrtps_dynamic_cpp` 正好是官方的 introspection 路径。
-
-当前最小闭包实测静态构建可以完成：`work/dist/android_arm64-v8a_static_dynamic/lib` 中包含 88 个 `.a`，并残留 5 个 `.so`：`libc++_shared.so`、`librmw_dds_common.so`、`librosidl_typesupport_fastrtps_cpp.so`、`libspdlog.so`、`libyaml.so`。其中 `libc++_shared.so` 来自默认 `ANDROID_STL=c++_shared`；其余 4 个来自 Humble 源码中显式 `SHARED` 或 vendor 强制 shared 的包。继续把这些也改成 `.a` 需要上游补丁，不建议作为默认路线。
-
-这个模式的目标不是把 `.a` 直接放进 APK，而是验证最小 ROS 2 闭包能静态到什么程度。实际集成到现有系统时，更常规的做法是把这些 `.a` 链进一个你控制的 JNI/bridge `.so`，只导出很小的业务 API，用它隔离 ROS 2 依赖和符号。Android demo 就走这条路：通过 [examples/android-ros2-demo/scripts/sync_ros2_artifacts.ps1](examples/android-ros2-demo/scripts/sync_ros2_artifacts.ps1) 维护的跳过列表，把当前 demo 用不到的 `librmw_fastrtps_cpp.a`、`libaction_msgs__*`、`libunique_identifier_msgs__*`、`libtest_msgs__*`、`librcl_logging_spdlog.a` 与 `libspdlog.so` 进一步剔除，得到 65 个 `.a` + 4 个 `.so` 的最小工件子集。更多细节见 [examples/android-ros2-demo/docs/DEPENDENCY_AUDIT.md](examples/android-ros2-demo/docs/DEPENDENCY_AUDIT.md)。
+Android 静态 dist 的当前验收目标是 `97` 个 `.a` + `libc++_shared.so` / `libspdlog.so` / `libyaml.so` 三个非 ROS `.so`。Windows 静态 dist 的当前验收目标是 `work/dist/windows_x64_static`，无 ROS 2 DLL，并包含 `ais_node_interface__rosidl_* .lib`。
 
 ## 扩展构建
 

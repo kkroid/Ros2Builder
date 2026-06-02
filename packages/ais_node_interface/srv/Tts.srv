@@ -1,0 +1,27 @@
+# Tts 服务 - 主动 TTS 播报控制
+# Topic: /aisrobot/tts
+#
+# 对齐一期 duiplus_dds.c 控制台命令:
+#   - start_tts <文本>  -> START
+#   - stop_tts          -> STOP
+#
+# SDK 映射:
+#   START -> duiPlusSpeak (operation=start, nlg=text, voiceId/volume/speed/sampleRate)
+#   STOP  -> duiPlusSpeak (operation=stop)  // 或 duiPlusStopTTS 视 SDK 版本
+#
+# 播报事件通过 /aisrobot/audio/player_event 异步发布（v2.4.0 同步新增）。
+uint8 START=0               # 启动主动播报
+uint8 STOP=1                # 停止当前播报
+
+uint8  cmd          # 命令类型
+# —— START 使用 ——
+string text                 # 待播报文本，必填
+string voice_id             # 空串 = 用 config.toml 默认（中/英自动按 Session 语种选择）
+int32  speed                # 0 = 用默认；[50, 200]
+int32  volume               # 0 = 用默认；[0, 100]
+int32  sample_rate          # 0 = 用默认；16000 / 24000
+bool   return_url           # true = SDK 返回 URL 不下音频流（对应 returnUrl 参数）
+---
+bool   success      # true=成功受理；false=参数/状态错误
+int32  code         # 0=成功；-1=未知命令；-60=text 为空；-61=SDK 调用失败；-62=duiPlus 未启用
+string message      # 成功描述或错误信息

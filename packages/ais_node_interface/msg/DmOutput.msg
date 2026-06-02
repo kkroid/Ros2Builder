@@ -1,0 +1,15 @@
+string record_id
+string session_id
+string speak_url
+bool   should_end_session
+string nlg
+string input
+int32  dm_status
+string task
+string intent_name
+string command_api
+string command_param_json
+string skill
+string skill_id
+string error_id
+string error_msg

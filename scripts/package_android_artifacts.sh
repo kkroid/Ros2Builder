@@ -35,6 +35,25 @@ copy_file() {
   cp --no-preserve=mode,ownership,timestamps "${source_file}" "${target_dir}/"
 }
 
+should_copy_shared_lib() {
+  local source_file="$1"
+  local name
+
+  if [[ "${BUILD_SHARED_LIBS:-ON}" != "OFF" ]]; then
+    return 0
+  fi
+
+  name="$(basename "${source_file}")"
+  case "${name}" in
+    libc++_shared.so|libspdlog.so|libyaml.so)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 existing_manifest_roots() {
   local root
 
@@ -77,6 +96,9 @@ fi
 
 if [[ -d "${install_prefix}/lib" ]]; then
   while IFS= read -r -d '' shared_lib; do
+    if ! should_copy_shared_lib "${shared_lib}"; then
+      continue
+    fi
     copy_file "${shared_lib}" "${artifact_root}/lib"
   done < <(find "${install_prefix}/lib" -type f -name '*.so*' -print0 | sort -z)
 

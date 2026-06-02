@@ -2,6 +2,25 @@
 set -euo pipefail
 
 workspace="${WORKSPACE_DIR:-/work}"
+
+# -------------------------------------------------------------------------
+# Copy local packages (not from git) into the colcon workspace.
+# Add new local packages here as needed.
+# -------------------------------------------------------------------------
+local_packages_dir="/opt/packages"
+if [[ -d "${local_packages_dir}" ]]; then
+  for pkg in "${local_packages_dir}"/*/; do
+    pkg_name="$(basename "${pkg}")"
+    pkg_dst="${workspace}/src/${pkg_name}"
+    if [[ ! -d "${pkg_dst}" ]]; then
+      echo "Installing local package: ${pkg_name}"
+      cp -a "${pkg}" "${pkg_dst}"
+    else
+      echo "Local package already present: ${pkg_name}"
+    fi
+  done
+fi
+
 filewatch_header="${workspace}/src/eProsima/Fast-DDS/thirdparty/filewatch/FileWatch.hpp"
 register_py_cmake="${workspace}/src/ros2/rosidl_python/rosidl_generator_py/cmake/register_py.cmake"
 

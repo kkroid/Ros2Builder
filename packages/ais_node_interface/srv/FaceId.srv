@@ -1,0 +1,87 @@
+# FaceId 服务 - 人脸识别（基于 DuiPlus LiteFaceId SDK；cortex v2.5.0 重构，取消流式 DETECT/STOP）
+# Topic: /aisrobot/face_id
+#
+# 设计原则（v2.5.0 - 客户端触发一次性命令）：
+# - 所有 cmd 均为“一次性请求-响应”：客户端把所需图像直接放进
+#   request.image / request.image_b，cortex 内部等 SDK 回调后把业务结果
+#   填入 response 同步返回。
+# - 超时分档（见 node.rs FACE_ID_TIMEOUT_HEAVY / _LIGHT）：
+#     HEAVY 5s → REGISTER / RECOGNIZE / COMPARE（需 SDK 检测+特征提取）
+#     LIGHT 2s → QUERY / DELETE / CLEAR   （纯参数设置，无图像推理）
+#     超时统一返回 code=-87。
+# - SDK 自发的 NOTIFY（状态/错误通知）事件通过 topic /aisrobot/face_id/result
+#   异步上报（与 service 请求无直接关联）。
+#
+# SDK 映射（operation 字符串与实际调用一致，见 node.rs face_id_dispatch）：
+#   REGISTER   -> set_lite_face_id_params({"operation":"register","personId":<uuid>})
+#                 + feed_lite_face_id(image)               + 等 EVENT_REGISTER
+#   RECOGNIZE  -> set_lite_face_id_params({"operation":"recognition"})
+#                 + feed_lite_face_id(image)               + 等 EVENT_RECOGNITION
+#   COMPARE    -> set_lite_face_id_params({"operation":"compare"})
+#                 + feed_lite_face_id_compare(image, image_b) + 等 EVENT_COMPARE
+#   QUERY      -> set_lite_face_id_params({"operation":"query"})  + 等 EVENT_QUERY
+#   DELETE     -> set_lite_face_id_params({"operation":"delete","personId":<uuid>}) + 等 EVENT_DELETE
+#   CLEAR      -> set_lite_face_id_params({"operation":"clear"})  + 等 EVENT_CLEAR
+#
+# 错误码汇总（同 code 字段，SDK 正常返回 0）：
+#   -80 duiplus engine 未启用 / face_id index 未创建
+#   -81 SDK 调用失败（feed_lite_face_id / set_lite_face_id_params 返 Err）
+#   -82 REGISTER 缺 face_id
+#   -83 DELETE   缺 face_id
+#   -85 图像解码失败（JPEG / I420 格式异常或大小不匹配）
+#   -86 缺必填图像（REGISTER/RECOGNIZE 无 image；COMPARE 缺 image 或 image_b）
+#   -87 SDK 回调超时（按上述 HEAVY/LIGHT 分档）
+#   -88 等待者被覆盖（同 event_type 连续 pending；正常业务不应出现）
+#   -1  未知 cmd
+#
+# 身份标识约定（face_id）：
+#   • 客户端应用 UUID 作为全局唯一身份键（推荐 UUID v4 32位 hex 或 8-4-4-4-12 格式），
+#     避免名字/拼音等医学/隐私敏感字段、避免重复、避免中文/空格/特殊字符。
+#   • 持久化开启时，cortex 会自动给 SDK 下发的 face_id 加 `persist.` 前缀；
+#     REGISTER 响应中的 face_id_out 是 SDK 实际存储的完整 key（包含前缀），
+#     后续 DELETE/RECOGNIZE 结果建议用 face_id_out 而非原始输入。
+#
+# 命令常量（.srv 内仅放前 3 个，避免 r2r bindgen 类型编号偏移；
+# cmd=3~5 在 Rust 侧 conversions.rs 常量化：
+#   FACE_ID_CMD_QUERY:   u8 = 3
+#   FACE_ID_CMD_DELETE:  u8 = 4
+#   FACE_ID_CMD_CLEAR:   u8 = 5
+# ）
+uint8 REGISTER=0            # 注册：一次性，建立 face_id(UUID) <-> 特征映射；持久化时自动加 persist. 前缀
+uint8 RECOGNIZE=1           # 识别：一次性，匹配已注册库，返回 face_id(UUID) 和相似度
+uint8 COMPARE=2             # 比对：一次性，两张图相似度
+
+# —— 请求 ——
+uint8     cmd               # 命令类型：0~2 见上常量，3~5 见 Rust 侧常量
+string    face_id           # REGISTER: 注册身份标识，客户端生成的 UUID
+                            #           例："550e8400-e29b-41d4-a716-446655440000"
+                            #           或 hex 紧凑格式 "550e8400e29b41d4a716446655440000"
+                            # DELETE:   要删除的身份（建议传 REGISTER 响应中的 face_id_out，
+                            #           已含 persist. 前缀；空串返回 -83）
+                            # 其余 cmd 填空串
+ImageMsg  image             # REGISTER / RECOGNIZE / COMPARE 必填：主图（JPEG 或 I420 编码）
+                            # QUERY / DELETE / CLEAR 忽略此字段
+ImageMsg  image_b           # COMPARE 必填：用于比对的第二张图
+                            # 其他 cmd 忽略
+---
+# —— 响应 ——
+bool      success           # true=业务成功；false=参数/状态/SDK 错误
+int32     code              # 0=成功；-1=未知命令；
+                            # -80=face_id 未启用或未初始化；
+                            # -81=SDK 调用失败；
+                            # -82=REGISTER 的 face_id 为空；
+                            # -83=DELETE 的 face_id 为空（建议用 CLEAR）；
+                            # -85=image 解码失败；
+                            # -86=必填图像缺失；
+                            # -87=SDK 回调超时；
+                            # -88=等待者被取消
+string    message           # 成功描述或错误信息
+
+# —— 业务结果（按 cmd 选用，未使用字段为默认值） ——
+string    face_id_out       # REGISTER: SDK 实际存储的 face_id key（含 persist. 前缀，后续删除/比对用此值）
+                            # RECOGNIZE: 匹配到的 face_id（UUID，含 persist. 前缀）
+                            # DELETE:   被删除的 face_id
+float32   score             # RECOGNIZE / COMPARE 返回的相似度 0.0~1.0
+int32     face_count        # REGISTER/RECOGNIZE 时 SDK 检测到的人脸数量
+string[]  face_id_list      # QUERY 返回：已注册的 face_id(UUID) 列表（均含 persist. 前缀）
+string    result_json       # SDK 原始 JSON 全文（兼容字段扩展）

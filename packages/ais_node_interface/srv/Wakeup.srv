@@ -1,0 +1,23 @@
+# Wakeup 服务 - 唤醒域控制
+#
+# 命令常量
+uint8 SET_DOA=0             # 设置环 4mic 选区角度
+uint8 EVAL_KWS=1            # 自定义唤醒词评估（同步仅返回"已受理"，评分走 topic /aisrobot/audio/kws_eval）
+uint8 RESET_CUSTOM_WKP=2    # 重置唤醒词为默认配置
+# cmd=3: CHANGE_WAKEUP_WORD 切换唤醒词资源（对齐一期 duiplus_dds.c::change_wakeup_word L887）
+#       说明：为避免 r2r bindgen 类型编号偏移，该命令不以 `uint8 XXX=3` 常量形式写入此文件，
+#       仅在 Rust 侧 conversions.rs 定义 `WAKEUP_CMD_CHANGE_WAKEUP_WORD: u8 = 3`。命令行调用时直接传 `cmd: 3`。
+
+uint8  cmd          # 命令类型
+# —— SET_DOA 使用 ——
+int32  doa_angle    # 取值必须为 0 / 90 / 180 / 270 之一
+# —— EVAL_KWS 使用 ——
+string key_words    # 拼音，如 "ni3 hao3 xiao3 chi2"
+string words        # 汉字，如 "你好小驰"
+uint8  mode         # 评估模式，默认 0
+# —— CHANGE_WAKEUP_WORD (cmd=3) 使用 ——
+string wakeup_name  # 唤醒资源槽名，例如 "xiao_zhi" / "default_av"（对应 config.toml [duiplus.wakeup_modes.modes.<name>]）
+---
+bool   success      # true=成功；false=失败
+int32  code         # 0=成功；负数见错误码表
+string message      # 成功描述或错误信息
