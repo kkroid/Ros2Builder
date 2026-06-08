@@ -121,3 +121,54 @@ else
     exit 2
   fi
 fi
+
+# -------------------------------------------------------------------------
+# Patch 6: spdlog_vendor — remove forced SPDLOG_BUILD_SHARED=ON for non-Windows.
+# spdlog_vendor hard-codes -DSPDLOG_BUILD_SHARED=ON for !WIN32, which overrides
+# BUILD_SHARED_LIBS=OFF. Remove the forced setting so spdlog is built static.
+# -------------------------------------------------------------------------
+spdlog_cmake="${workspace}/src/ros2/spdlog_vendor/CMakeLists.txt"
+
+if [[ ! -f "${spdlog_cmake}" ]]; then
+  echo "Skipping spdlog_vendor static patch; file not found: ${spdlog_cmake}"
+elif grep -q 'SPDLOG_BUILD_SHARED=ON' "${spdlog_cmake}"; then
+  echo "Applying spdlog_vendor static patch (remove forced SPDLOG_BUILD_SHARED=ON)"
+  perl -pi -e 's/-DSPDLOG_BUILD_SHARED=ON/-DSPDLOG_BUILD_SHARED=OFF/' "${spdlog_cmake}"
+  if grep -q 'SPDLOG_BUILD_SHARED=ON' "${spdlog_cmake}"; then
+    echo "Failed to apply spdlog_vendor static patch" >&2
+    exit 2
+  fi
+else
+  echo "spdlog_vendor already static"
+fi
+
+# -------------------------------------------------------------------------
+# Patch 7: CycloneDDS — always define dummy security_core INTERFACE target
+# When ENABLE_SECURITY=OFF, security_core is never defined but the cmake
+# install(EXPORT CycloneDDS) for ddsc may still reference it, causing:
+#   CMake Error: install(EXPORT "CycloneDDS" ...) includes target "ddsc"
+#   which requires target "security_core" that is not in any export set.
+# Workaround: always create a dummy INTERFACE library for security_core.
+# -------------------------------------------------------------------------
+cyclonedds_security_cmake="${workspace}/src/eclipse-cyclonedds/cyclonedds/src/security/CMakeLists.txt"
+
+if [[ ! -f "${cyclonedds_security_cmake}" ]]; then
+  echo "Skipping CycloneDDS security_core patch; file not found: ${cyclonedds_security_cmake}"
+elif grep -q 'CYCLONEDDS_ANDROID_SECURITY_DUMMY' "${cyclonedds_security_cmake}"; then
+  echo "CycloneDDS security_core dummy patch already applied"
+else
+  echo "Applying CycloneDDS security_core dummy patch (ensure security_core exists when ENABLE_SECURITY=OFF)"
+  cat >> "${cyclonedds_security_cmake}" << 'CDDSEOF'
+
+# Android patch: ensure security_core target always exists so the
+# install(EXPORT CycloneDDS) does not fail when ENABLE_SECURITY=OFF.
+# CYCLONEDDS_ANDROID_SECURITY_DUMMY — do not remove this marker.
+if(NOT ENABLE_SECURITY)
+  add_library(security_core INTERFACE)
+endif()
+CDDSEOF
+  if ! grep -q 'CYCLONEDDS_ANDROID_SECURITY_DUMMY' "${cyclonedds_security_cmake}"; then
+    echo "Failed to apply CycloneDDS security_core dummy patch" >&2
+    exit 2
+  fi
+fi

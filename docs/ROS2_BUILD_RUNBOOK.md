@@ -5,18 +5,15 @@
 - Android: `work/dist/android_arm64-v8a`
 - Windows: `work/dist/windows_x64_static`
 
-当前封版目标包含：`rclcpp`、Fast DDS RMW、`std_msgs`、本地接口包 `ais_node_interface`。`ais_node_interface/msg/AudioCapture` 必须在编译期进入 typesupport，不能依赖运行时动态加载。
+当前封版目标包含：`rclcpp`、Cyclone DDS RMW、`std_msgs`、本地接口包 `ais_node_interface`。`ais_node_interface/msg/AudioCapture` 必须在编译期进入 typesupport，不能依赖运行时动态加载。
 
 ## 成功标准
 
 Android 静态 dist：
 
 - 路径：`E:\github\Ros2Builder\work\dist\android_arm64-v8a`
-- `lib/` 下应有 `97` 个 `.a`
-- `lib/` 下只允许这 3 个非 ROS `.so`：
-  - `libc++_shared.so`
-  - `libspdlog.so`
-  - `libyaml.so`
+- `lib/` 下应有 `101` 个 `.a`
+- `lib/` 下不应有任何非 ROS 的 `.so`（spdlog 以静态 `.a` 方式构建）
 - 不允许出现 `libais_node_interface*.so`、`librosidl*.so`、`librcl*.so`、`librmw*.so`
 
 Windows 静态 dist：
@@ -143,12 +140,12 @@ docker compose build android-build
 ```powershell
 docker compose run --rm `
   -e BUILD_SHARED_LIBS=OFF `
-  -e BUILD_PACKAGES="rclcpp rmw_fastrtps_cpp std_msgs ais_node_interface" `
-  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp `
+  -e BUILD_PACKAGES="rclcpp rmw_cyclonedds_cpp std_msgs ais_node_interface" `
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp `
   -e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON `
   -e CMAKE_POSITION_INDEPENDENT_CODE=ON `
-  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_fastrtps_c `
-  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_fastrtps_cpp `
+  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c `
+  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp `
   android-build
 ```
 
@@ -187,12 +184,12 @@ podman version
 podman compose build android-build
 podman compose run --rm `
   -e BUILD_SHARED_LIBS=OFF `
-  -e BUILD_PACKAGES="rclcpp rmw_fastrtps_cpp std_msgs ais_node_interface" `
-  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp `
+  -e BUILD_PACKAGES="rclcpp rmw_cyclonedds_cpp std_msgs ais_node_interface" `
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp `
   -e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON `
   -e CMAKE_POSITION_INDEPENDENT_CODE=ON `
-  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_fastrtps_c `
-  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_fastrtps_cpp `
+  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c `
+  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp `
   android-build
 ```
 
@@ -214,14 +211,14 @@ wsl -d podman-machine-default -- bash -lc "podman run --rm \
   -e ANDROID_NDK_HOME=/opt/android-ndk-cache/android-ndk-r25b-linux \
   -e ANDROID_ABI=arm64-v8a \
   -e ANDROID_API=29 \
-  -e ANDROID_STL=c++_shared \
+  -e ANDROID_STL=c++_static \
   -e BUILD_SHARED_LIBS=OFF \
-  -e BUILD_PACKAGES='rclcpp rmw_fastrtps_cpp std_msgs ais_node_interface' \
-  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+  -e BUILD_PACKAGES='rclcpp rmw_cyclonedds_cpp std_msgs ais_node_interface' \
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
   -e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON \
   -e CMAKE_POSITION_INDEPENDENT_CODE=ON \
-  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_fastrtps_c \
-  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_fastrtps_cpp \
+  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c \
+  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp \
   -e SOURCE_MANIFEST=/manifests/ros2-humble-android.repos \
   -w /work \
   ros2-humble-android-builder:latest \
@@ -241,14 +238,14 @@ wsl -d podman-machine-default -- bash -lc "podman run --rm \
   -e ANDROID_NDK_HOME=/opt/android-ndk-cache/android-ndk-r25b-linux \
   -e ANDROID_ABI=arm64-v8a \
   -e ANDROID_API=29 \
-  -e ANDROID_STL=c++_shared \
+  -e ANDROID_STL=c++_static \
   -e BUILD_SHARED_LIBS=OFF \
   -e BUILD_PACKAGES='ais_node_interface' \
-  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
   -e RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=ON \
   -e CMAKE_POSITION_INDEPENDENT_CODE=ON \
-  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_fastrtps_c \
-  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_fastrtps_cpp \
+  -e STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_introspection_c \
+  -e STATIC_ROSIDL_TYPESUPPORT_CPP=rosidl_typesupport_introspection_cpp \
   -w /work \
   ros2-humble-android-builder:latest \
   bash -lc 'set -euo pipefail; rm -rf /work/build/android_arm64-v8a/ais_node_interface; rm -f /work/install/android_arm64-v8a/lib/libais_node_interface*.so /work/install/android_arm64-v8a/lib/libais_node_interface*.a; rm -rf /work/src/ais_node_interface; cp -a /opt/packages/ais_node_interface /work/src/; /scripts/build_android.sh; /scripts/package_android_artifacts.sh'"
@@ -335,7 +332,7 @@ Get-ChildItem $AndroidLib -Filter '*.so' -File | Select-Object Name
 Get-ChildItem $AndroidLib -Filter 'libais_node_interface*.so' -File
 ```
 
-预期：第一个命令输出 `97`；第二个命令只列出 `libc++_shared.so`、`libspdlog.so`、`libyaml.so`；第三个命令无输出。
+预期：第一个命令输出 `101`；第二个命令无输出（纯静态构建）；第三个命令无输出。
 
 Windows dist 检查：
 

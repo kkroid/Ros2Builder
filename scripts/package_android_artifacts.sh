@@ -45,9 +45,6 @@ should_copy_shared_lib() {
 
   name="$(basename "${source_file}")"
   case "${name}" in
-    libc++_shared.so|libspdlog.so|libyaml.so)
-      return 0
-      ;;
     *)
       return 1
       ;;
@@ -142,7 +139,7 @@ ANDROID_ABI=${android_abi}
 ANDROID_API=${ANDROID_API:-29}
 ANDROID_STL=${android_stl}
 BUILD_SHARED_LIBS=${BUILD_SHARED_LIBS:-ON}
-RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}
 RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION=${RMW_IMPLEMENTATION_DISABLE_RUNTIME_SELECTION:-}
 STATIC_ROSIDL_TYPESUPPORT_C=${STATIC_ROSIDL_TYPESUPPORT_C:-}
 STATIC_ROSIDL_TYPESUPPORT_CPP=${STATIC_ROSIDL_TYPESUPPORT_CPP:-}
